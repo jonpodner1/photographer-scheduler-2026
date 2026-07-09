@@ -1,0 +1,29 @@
+# dependencies / build
+node_modules
+dist
+dist-ssr
+*.local
+.env.local
+.env.*.local
+
+# logs
+logs
+*.log
+npm-debug.log*
+firebase-debug.log
+firebase-debug.*.log
+ui-debug.log
+
+# firebase
+.firebase
+functions/node_modules
+
+# editor / os
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# reference Flutter app (kept locally for reference, not part of the web app)
+photographer-scheduler-main/
+photographer-scheduler-main.zip

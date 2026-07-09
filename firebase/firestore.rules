@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/scheduler_users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    match /scheduler_users/{uid} {
+      allow read: if isAuthenticated();
+      // Privilege-escalation fix: self-created accounts are always photographers.
+      // Admins are promoted in the console or by an existing admin via update.
+      allow create: if isOwner(uid) &&
+        request.resource.data.role == 'photographer';
+      // Users may edit their own doc but never their role; admins may edit anyone.
+      allow update: if isAdmin() ||
+        (isOwner(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+      allow delete: if isAdmin();
+    }
+
+    match /scheduler_settings/{doc} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /scheduler_events/{eventId} {
+      allow read: if isAuthenticated();
+      // Only admins write events directly. Photographer signup/withdrawal goes
+      // through the callable Cloud Functions (Admin SDK bypasses these rules),
+      // so non-admin clients need no direct write access at all.
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /scheduler_notifications/{notifId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // Notifications are only created server-side (Cloud Functions).
+      allow create: if false;
+      // Users may only flip their own read flag.
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
