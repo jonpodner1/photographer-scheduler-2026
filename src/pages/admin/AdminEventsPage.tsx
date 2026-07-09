@@ -15,6 +15,11 @@ import Modal from '../../components/Modal'
 import Spinner from '../../components/Spinner'
 import { isSignedUpBy, type AppUser, type ScheduleEvent } from '../../types/models'
 import { formatDateLong } from '../../lib/format'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 type Tab = 'upcoming' | 'past'
 
@@ -60,42 +65,31 @@ export default function AdminEventsPage() {
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex rounded-lg border border-gray-300 bg-white p-0.5 text-sm">
-          {(['upcoming', 'past'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-md px-4 py-1.5 font-medium capitalize ${
-                tab === t ? 'bg-primary text-white' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+          <TabsList>
+            <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+            <TabsTrigger value="past">Past</TabsTrigger>
+          </TabsList>
+        </Tabs>
         <div className="flex gap-2">
-          <button
-            onClick={() => setCsvOpen(true)}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
+          <Button variant="outline" onClick={() => setCsvOpen(true)}>
             Import CSV
-          </button>
-          <Link
-            to="/admin/events/new"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-          >
-            + New Event
-          </Link>
+          </Button>
+          <Button asChild>
+            <Link to="/admin/events/new">+ New Event</Link>
+          </Button>
         </div>
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 p-3 text-sm text-red-700">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="font-medium underline">
-            Dismiss
-          </button>
-        </div>
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription className="flex w-full items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="font-medium underline">
+              Dismiss
+            </button>
+          </AlertDescription>
+        </Alert>
       )}
 
       {!events ? (
@@ -103,9 +97,9 @@ export default function AdminEventsPage() {
           <Spinner />
         </div>
       ) : events.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
+        <Card className="border-dashed p-8 text-center text-sm text-muted-foreground">
           No {tab} events.
-        </p>
+        </Card>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {events.map((event) => (
@@ -117,55 +111,54 @@ export default function AdminEventsPage() {
                 <>
                   {tab === 'upcoming' && (
                     <>
-                      <Link
-                        to={`/admin/events/${event.id}/edit`}
-                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                      >
-                        Edit
-                      </Link>
-                      <button
-                        onClick={() => setAssignTarget(event)}
-                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                      >
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to={`/admin/events/${event.id}/edit`}>Edit</Link>
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setAssignTarget(event)}>
                         Assign
-                      </button>
+                      </Button>
                       {event.status !== 'cancelled' && (
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
                           onClick={() => setConfirmAction({ kind: 'cancel', event })}
-                          className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-50"
                         >
                           Cancel Event
-                        </button>
+                        </Button>
                       )}
                     </>
                   )}
-                  <button
+                  <Button
+                    variant="destructive"
+                    size="sm"
                     onClick={() => setConfirmAction({ kind: 'delete', event })}
-                    className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
                   >
                     Delete
-                  </button>
+                  </Button>
                 </>
               }
             >
               {event.slots.length > 0 && tab === 'upcoming' && (
-                <ul className="mt-3 space-y-1 rounded-lg bg-gray-50 p-2">
+                <ul className="mt-3 space-y-1 rounded-lg bg-muted p-2">
                   {event.slots.map((s) => (
                     <li key={s.photographerId} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="text-gray-700">
+                      <span>
                         {s.photographerName}
                         {s.requestedCamera && (
-                          <span className="ml-1.5 text-xs text-accent" title="Requested yearbook camera">
+                          <span className="ml-1.5 text-xs text-brand" title="Requested yearbook camera">
                             📷 camera
                           </span>
                         )}
                       </span>
-                      <button
+                      <Button
+                        variant="link"
+                        size="xs"
+                        className="text-destructive"
                         onClick={() => removePhotographer(event, s.photographerId)}
-                        className="text-xs font-medium text-red-500 hover:underline"
                       >
                         Remove
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>
@@ -191,7 +184,7 @@ export default function AdminEventsPage() {
           title={confirmAction.kind === 'cancel' ? 'Cancel Event' : 'Delete Event'}
           onClose={() => setConfirmAction(null)}
         >
-          <p className="text-sm text-gray-700">
+          <p className="text-sm">
             {confirmAction.kind === 'cancel' ? (
               <>
                 Cancel <span className="font-semibold">{confirmAction.event.eventName}</span> on{' '}
@@ -205,21 +198,17 @@ export default function AdminEventsPage() {
               </>
             )}
           </p>
-          <div className="mt-5 flex justify-end gap-2">
-            <button
-              onClick={() => setConfirmAction(null)}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirmAction(null)}>
               Back
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="destructive"
+              className={confirmAction.kind === 'cancel' ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : ''}
               onClick={runConfirm}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
-                confirmAction.kind === 'cancel' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-red-600 hover:bg-red-700'
-              }`}
             >
               {confirmAction.kind === 'cancel' ? 'Cancel Event' : 'Delete Permanently'}
-            </button>
+            </Button>
           </div>
         </Modal>
       )}
@@ -255,38 +244,35 @@ function AssignModal({
 
   return (
     <Modal title={`Assign to ${event.eventName}`} onClose={onClose}>
-      <p className="mb-3 text-sm text-gray-500">
+      <p className="text-sm text-muted-foreground">
         {event.slots.length}/{event.slotsNeeded} slots filled. Assigning beyond the limit is allowed.
       </p>
-      {error && <div className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {error && (
+        <Alert variant="destructive" className="my-2">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       {candidates.length === 0 ? (
-        <p className="text-sm text-gray-500">Every photographer is already on this event.</p>
+        <p className="text-sm text-muted-foreground">Every photographer is already on this event.</p>
       ) : (
-        <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+        <ul className="max-h-72 divide-y divide-border overflow-y-auto">
           {candidates.map((p) => (
             <li key={p.uid} className="flex items-center justify-between gap-2 py-2">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-gray-800">{p.displayName}</p>
-                <p className="truncate text-xs text-gray-500">{p.email}</p>
+                <p className="truncate text-sm font-medium">{p.displayName}</p>
+                <p className="truncate text-xs text-muted-foreground">{p.email}</p>
               </div>
-              <button
-                onClick={() => assign(p.uid)}
-                disabled={busyUid !== null}
-                className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-              >
+              <Button size="sm" onClick={() => assign(p.uid)} disabled={busyUid !== null}>
                 {busyUid === p.uid ? 'Assigning…' : 'Assign'}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
-      <div className="mt-4 flex justify-end">
-        <button
-          onClick={onClose}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
+      <div className="mt-2 flex justify-end">
+        <Button variant="outline" onClick={onClose}>
           Done
-        </button>
+        </Button>
       </div>
     </Modal>
   )
@@ -312,7 +298,7 @@ function CsvImportModal({ adminUid, onClose }: { adminUid: string; onClose: () =
 
   return (
     <Modal title="Import Events from CSV" onClose={() => !busy && onClose()} wide>
-      <div className="mb-4 rounded-lg bg-gray-50 p-3 font-mono text-xs leading-relaxed text-gray-600">
+      <div className="rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed text-muted-foreground">
         Required headers: date, time, location, event_name
         <br />
         Optional headers: end_time, slots_needed, notes
@@ -325,46 +311,37 @@ function CsvImportModal({ adminUid, onClose }: { adminUid: string; onClose: () =
         05/15/2026,2:00 PM,Gym,Varsity Basketball
       </div>
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".csv,text/csv"
-        className="mb-4 block w-full text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:opacity-90"
-      />
+      <Input ref={fileRef} type="file" accept=".csv,text/csv" className="my-4" />
 
       {result && (
         <div className="mb-4 space-y-2">
-          <div className="rounded-lg bg-green-50 p-3 text-sm text-green-800">
-            Imported {result.success} event{result.success === 1 ? '' : 's'}.
-          </div>
+          <Alert className="border-green-300 bg-green-50">
+            <AlertDescription className="text-green-800">
+              Imported {result.success} event{result.success === 1 ? '' : 's'}.
+            </AlertDescription>
+          </Alert>
           {result.errors.length > 0 && (
-            <div className="max-h-40 overflow-y-auto rounded-lg bg-red-50 p-3 text-sm text-red-700">
-              <p className="mb-1 font-medium">{result.errors.length} row(s) had problems:</p>
-              <ul className="list-inside list-disc space-y-0.5">
-                {result.errors.map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-              </ul>
-            </div>
+            <Alert variant="destructive" className="max-h-40 overflow-y-auto">
+              <AlertDescription>
+                <p className="mb-1 font-medium">{result.errors.length} row(s) had problems:</p>
+                <ul className="list-inside list-disc space-y-0.5">
+                  {result.errors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
           )}
         </div>
       )}
 
       <div className="flex justify-end gap-2">
-        <button
-          onClick={onClose}
-          disabled={busy}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
+        <Button variant="outline" onClick={onClose} disabled={busy}>
           {result ? 'Done' : 'Cancel'}
-        </button>
-        <button
-          onClick={run}
-          disabled={busy}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-        >
+        </Button>
+        <Button onClick={run} disabled={busy}>
           {busy ? 'Importing…' : 'Import'}
-        </button>
+        </Button>
       </div>
     </Modal>
   )

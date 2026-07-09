@@ -15,9 +15,11 @@ const BrandingContext = createContext<BrandingState>({
 })
 
 function applyCssVars(b: Branding) {
+  // Drives the shadcn theme (--primary) plus the custom --brand accent token.
   const root = document.documentElement
-  root.style.setProperty('--color-primary', argbToHex(b.primaryColorValue))
-  root.style.setProperty('--color-accent', argbToHex(b.accentColorValue))
+  root.style.setProperty('--primary', argbToHex(b.primaryColorValue))
+  root.style.setProperty('--ring', argbToHex(b.primaryColorValue))
+  root.style.setProperty('--brand', argbToHex(b.accentColorValue))
 }
 
 export function BrandingProvider({ children }: { children: ReactNode }) {

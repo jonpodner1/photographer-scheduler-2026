@@ -4,9 +4,10 @@ Web app for scheduling yearbook photographers, replacing the previous Flutter
 app. Admins create events; photographers sign up for open slots. Lives at
 https://events.mchsyearbook.org.
 
-- **Frontend:** Vite + React + TypeScript + Tailwind, react-router (browser
-  history), FullCalendar, PapaParse. Pure static SPA — `npm run build` emits
-  `dist/` served by nginx.
+- **Frontend:** Vite + React + TypeScript + Tailwind + shadcn/ui (components
+  live in `src/components/ui/`, themed via CSS variables so org branding colors
+  apply at runtime), react-router (browser history), FullCalendar, PapaParse.
+  Pure static SPA — `npm run build` emits `dist/` served by nginx.
 - **Backend:** Firebase — Auth (email/password), Firestore, Cloud Functions.
   Collections are namespaced `scheduler_*` so the app shares a project with the
   iOS app without data collisions.

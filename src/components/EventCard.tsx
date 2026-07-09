@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import {
   isFull,
   isOpen,
@@ -9,13 +12,21 @@ import { formatDateLong, formatTimeRange } from '../lib/format'
 
 export function StatusBadge({ event }: { event: ScheduleEvent }) {
   if (event.status === 'cancelled')
-    return <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">Cancelled</span>
+    return (
+      <Badge className="border-transparent bg-red-100 text-red-700" variant="outline">
+        Cancelled
+      </Badge>
+    )
   if (isFull(event))
-    return <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">Filled</span>
+    return (
+      <Badge className="border-transparent bg-green-100 text-green-700" variant="outline">
+        Filled
+      </Badge>
+    )
   return (
-    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+    <Badge className="border-transparent bg-amber-100 text-amber-700" variant="outline">
       {slotsRemaining(event)} {slotsRemaining(event) === 1 ? 'slot' : 'slots'} open
-    </span>
+    </Badge>
   )
 }
 
@@ -32,47 +43,49 @@ interface EventCardProps {
 
 export default function EventCard({ event, signedUp, actions, children, muted }: EventCardProps) {
   return (
-    <div
-      className={`print-avoid-break rounded-xl border bg-white p-4 shadow-sm ${
-        signedUp ? 'border-primary/40 ring-1 ring-primary/30' : 'border-gray-200'
-      } ${muted ? 'opacity-75' : ''}`}
+    <Card
+      className={cn(
+        'print-avoid-break gap-0 p-4',
+        signedUp && 'border-primary/40 ring-1 ring-primary/30',
+        muted && 'opacity-75',
+      )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="font-semibold text-gray-900">{event.eventName}</h3>
-          <p className="text-sm text-gray-600">{formatDateLong(event.date)}</p>
+          <h3 className="font-semibold">{event.eventName}</h3>
+          <p className="text-sm text-muted-foreground">{formatDateLong(event.date)}</p>
         </div>
         <div className="flex items-center gap-2">
           {signedUp && (
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+            <Badge variant="outline" className="border-transparent bg-primary/10 text-primary">
               You're signed up
-            </span>
+            </Badge>
           )}
           <StatusBadge event={event} />
         </div>
       </div>
 
-      <dl className="mt-3 space-y-1 text-sm text-gray-700">
+      <dl className="mt-3 space-y-1 text-sm">
         <div className="flex gap-2">
-          <dt className="w-16 shrink-0 text-gray-400">Time</dt>
+          <dt className="w-16 shrink-0 text-muted-foreground">Time</dt>
           <dd>{formatTimeRange(event.startTime, event.endTime)}</dd>
         </div>
         <div className="flex gap-2">
-          <dt className="w-16 shrink-0 text-gray-400">Where</dt>
+          <dt className="w-16 shrink-0 text-muted-foreground">Where</dt>
           <dd>{event.location}</dd>
         </div>
         {event.notes && (
           <div className="flex gap-2">
-            <dt className="w-16 shrink-0 text-gray-400">Notes</dt>
+            <dt className="w-16 shrink-0 text-muted-foreground">Notes</dt>
             <dd className="whitespace-pre-wrap">{event.notes}</dd>
           </div>
         )}
         <div className="flex gap-2">
-          <dt className="w-16 shrink-0 text-gray-400">Slots</dt>
+          <dt className="w-16 shrink-0 text-muted-foreground">Slots</dt>
           <dd>
             {event.slots.length}/{event.slotsNeeded} filled
             {event.slots.length > 0 && (
-              <span className="text-gray-500">
+              <span className="text-muted-foreground">
                 {' — '}
                 {event.slots.map((s) => s.photographerName).join(', ')}
               </span>
@@ -83,7 +96,7 @@ export default function EventCard({ event, signedUp, actions, children, muted }:
 
       {children}
       {actions && <div className="mt-4 flex flex-wrap gap-2">{actions}</div>}
-    </div>
+    </Card>
   )
 }
 

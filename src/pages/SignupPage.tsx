@@ -1,6 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function SignupPage() {
   const { signUp } = useAuth()
@@ -26,58 +31,54 @@ export default function SignupPage() {
     // On success the auth listener redirects automatically.
   }
 
-  const field =
-    'mb-4 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30'
-
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-muted p-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-xl font-bold text-gray-900">Create your account</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-xl font-bold">Create your account</h1>
+          <p className="text-sm text-muted-foreground">
             New accounts join as photographers. Admins are promoted by an existing admin.
           </p>
         </div>
 
-        <form onSubmit={submit} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          {error && (
-            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
-          )}
-          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="name">
-            Full Name
-          </label>
-          <input id="name" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={field} autoComplete="name" />
+        <Card>
+          <CardContent>
+            <form onSubmit={submit} className="space-y-4">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="name">Full Name</Label>
+                <Input id="name" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} autoComplete="name" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="phone">
+                  Phone <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password">Password</Label>
+                <Input id="password" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm">Confirm Password</Label>
+                <Input id="confirm" type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+              </div>
+              <Button type="submit" size="lg" disabled={busy} className="w-full">
+                {busy ? 'Creating account…' : 'Sign Up'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
-          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="email">
-            Email
-          </label>
-          <input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={field} autoComplete="email" />
-
-          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="phone">
-            Phone <span className="font-normal text-gray-400">(optional)</span>
-          </label>
-          <input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={field} autoComplete="tel" />
-
-          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="password">
-            Password
-          </label>
-          <input id="password" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} className={field} autoComplete="new-password" />
-
-          <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="confirm">
-            Confirm Password
-          </label>
-          <input id="confirm" type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} className={field} autoComplete="new-password" />
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-2 w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {busy ? 'Creating account…' : 'Sign Up'}
-          </button>
-        </form>
-
-        <p className="mt-4 text-center text-sm text-gray-600">
+        <p className="mt-4 text-center text-sm text-muted-foreground">
           Already have an account?{' '}
           <Link to="/login" className="font-medium text-primary hover:underline">
             Sign in

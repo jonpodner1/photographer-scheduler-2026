@@ -8,6 +8,11 @@ import Modal from '../../components/Modal'
 import Spinner from '../../components/Spinner'
 import { isOpen, isSignedUpBy, type ScheduleEvent } from '../../types/models'
 import { formatDateLong, formatTimeRange } from '../../lib/format'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 export default function AvailableEventsPage() {
   const { profile } = useAuth()
@@ -47,18 +52,20 @@ export default function AvailableEventsPage() {
 
   return (
     <div>
-      <h2 className="mb-4 text-lg font-semibold text-gray-900">Available Events</h2>
+      <h2 className="mb-4 text-lg font-semibold">Available Events</h2>
 
       {!branding.selfSignupEnabled && (
-        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          Self-signup is currently disabled. Your adviser will assign photographers to events.
-        </div>
+        <Alert className="mb-4 border-amber-300 bg-amber-50">
+          <AlertDescription className="text-amber-900">
+            Self-signup is currently disabled. Your adviser will assign photographers to events.
+          </AlertDescription>
+        </Alert>
       )}
 
       {available.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
+        <Card className="border-dashed p-8 text-center text-sm text-muted-foreground">
           No open events right now. Check back soon!
-        </p>
+        </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {available.map((event) => {
@@ -70,16 +77,15 @@ export default function AvailableEventsPage() {
                 signedUp={signedUp}
                 actions={
                   branding.selfSignupEnabled && !signedUp ? (
-                    <button
+                    <Button
                       onClick={() => {
                         setSignupTarget(event)
                         setRequestCamera(false)
                         setError(null)
                       }}
-                      className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
                     >
                       Sign Up
-                    </button>
+                    </Button>
                   ) : undefined
                 }
               />
@@ -90,41 +96,38 @@ export default function AvailableEventsPage() {
 
       {signupTarget && (
         <Modal title="Confirm Sign-Up" onClose={() => !busy && setSignupTarget(null)}>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm">
             Sign up to photograph <span className="font-semibold">{signupTarget.eventName}</span>?
           </p>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             {formatDateLong(signupTarget.date)} · {formatTimeRange(signupTarget.startTime, signupTarget.endTime)} ·{' '}
             {signupTarget.location}
           </p>
 
-          <label className="mt-4 flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
+          <div className="mt-2 flex items-center gap-2">
+            <Checkbox
+              id="requestCamera"
               checked={requestCamera}
-              onChange={(e) => setRequestCamera(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 accent-[var(--color-primary)]"
+              onCheckedChange={(v) => setRequestCamera(v === true)}
             />
-            I need to borrow a yearbook camera
-          </label>
+            <Label htmlFor="requestCamera" className="font-normal">
+              I need to borrow a yearbook camera
+            </Label>
+          </div>
 
-          {error && <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+          {error && (
+            <Alert variant="destructive" className="mt-3">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-          <div className="mt-5 flex justify-end gap-2">
-            <button
-              onClick={() => setSignupTarget(null)}
-              disabled={busy}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSignupTarget(null)} disabled={busy}>
               Cancel
-            </button>
-            <button
-              onClick={confirmSignup}
-              disabled={busy}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-            >
+            </Button>
+            <Button onClick={confirmSignup} disabled={busy}>
               {busy ? 'Signing up…' : 'Confirm Sign-Up'}
-            </button>
+            </Button>
           </div>
         </Modal>
       )}

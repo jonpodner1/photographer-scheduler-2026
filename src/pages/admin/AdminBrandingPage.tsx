@@ -1,6 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useBranding } from '../../context/BrandingContext'
 import { argbToHex, hexToArgb } from '../../types/models'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 const PRESETS = [
   { name: 'Indigo', primary: '#1a237e', accent: '#ff6f00' },
@@ -54,16 +59,12 @@ export default function AdminBrandingPage() {
     setTimeout(() => setSaved(false), 2500)
   }
 
-  const field =
-    'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30'
-  const label = 'mb-1 block text-sm font-medium text-gray-700'
-
   return (
     <div className="mx-auto max-w-xl">
-      <h2 className="mb-4 text-lg font-semibold text-gray-900">Branding</h2>
+      <h2 className="mb-4 text-lg font-semibold">Branding</h2>
 
       {/* Live preview */}
-      <div className="mb-6 overflow-hidden rounded-xl border border-gray-200 shadow-sm">
+      <Card className="mb-6 gap-0 overflow-hidden py-0">
         <div className="flex items-center gap-3 px-4 py-3" style={{ backgroundColor: primary }}>
           {logoUrl && <img src={logoUrl} alt="" className="h-8 w-8 rounded object-contain" />}
           <span className="font-semibold text-white">{orgName || 'Photographer Scheduler'}</span>
@@ -74,118 +75,116 @@ export default function AdminBrandingPage() {
             Accent
           </span>
         </div>
-        <div className="bg-white px-4 py-3 text-sm text-gray-500">
+        <div className="px-4 py-3 text-sm text-muted-foreground">
           Colors apply live across the app when saved. The same branding document is shared with the
           iOS app.
         </div>
-      </div>
+      </Card>
 
-      <form onSubmit={submit} className="space-y-5 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div>
-          <label className={label} htmlFor="orgName">
-            Organization Name
-          </label>
-          <input id="orgName" value={orgName} onChange={(e) => setOrgName(e.target.value)} className={field} />
-        </div>
-
-        <div>
-          <label className={label} htmlFor="logoUrl">
-            Logo URL <span className="font-normal text-gray-400">(optional)</span>
-          </label>
-          <input id="logoUrl" type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} className={field} placeholder="https://…" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={label} htmlFor="primaryColor">
-              Primary Color
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="primaryColor"
-                type="color"
-                value={primary}
-                onChange={(e) => setPrimary(e.target.value)}
-                className="h-9 w-14 cursor-pointer rounded border border-gray-300"
-              />
-              <code className="text-xs text-gray-500">{primary}</code>
+      <Card>
+        <CardContent>
+          <form onSubmit={submit} className="space-y-5">
+            <div className="space-y-1.5">
+              <Label htmlFor="orgName">Organization Name</Label>
+              <Input id="orgName" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
             </div>
-          </div>
-          <div>
-            <label className={label} htmlFor="accentColor">
-              Accent Color
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="accentColor"
-                type="color"
-                value={accent}
-                onChange={(e) => setAccent(e.target.value)}
-                className="h-9 w-14 cursor-pointer rounded border border-gray-300"
+
+            <div className="space-y-1.5">
+              <Label htmlFor="logoUrl">
+                Logo URL <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="logoUrl"
+                type="url"
+                value={logoUrl}
+                onChange={(e) => setLogoUrl(e.target.value)}
+                placeholder="https://…"
               />
-              <code className="text-xs text-gray-500">{accent}</code>
             </div>
-          </div>
-        </div>
 
-        <div>
-          <p className={label}>Presets</p>
-          <div className="flex flex-wrap gap-2">
-            {PRESETS.map((p) => (
-              <button
-                key={p.name}
-                type="button"
-                onClick={() => {
-                  setPrimary(p.primary)
-                  setAccent(p.accent)
-                }}
-                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-gray-400"
-              >
-                <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: p.primary }} />
-                <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: p.accent }} />
-                {p.name}
-              </button>
-            ))}
-          </div>
-        </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="primaryColor">Primary Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="primaryColor"
+                    type="color"
+                    value={primary}
+                    onChange={(e) => setPrimary(e.target.value)}
+                    className="h-9 w-14 cursor-pointer rounded-lg border border-input"
+                  />
+                  <code className="text-xs text-muted-foreground">{primary}</code>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="accentColor">Accent Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="accentColor"
+                    type="color"
+                    value={accent}
+                    onChange={(e) => setAccent(e.target.value)}
+                    className="h-9 w-14 cursor-pointer rounded-lg border border-input"
+                  />
+                  <code className="text-xs text-muted-foreground">{accent}</code>
+                </div>
+              </div>
+            </div>
 
-        <div>
-          <label className={label} htmlFor="pdf1">
-            Print Header Line 1
-          </label>
-          <input id="pdf1" value={pdfHeader1} onChange={(e) => setPdfHeader1(e.target.value)} className={field} />
-        </div>
-        <div>
-          <label className={label} htmlFor="pdf2">
-            Print Header Line 2 <span className="font-normal text-gray-400">(optional)</span>
-          </label>
-          <input id="pdf2" value={pdfHeader2} onChange={(e) => setPdfHeader2(e.target.value)} className={field} />
-        </div>
+            <div className="space-y-1.5">
+              <Label>Presets</Label>
+              <div className="flex flex-wrap gap-2">
+                {PRESETS.map((p) => (
+                  <Button
+                    key={p.name}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setPrimary(p.primary)
+                      setAccent(p.accent)
+                    }}
+                  >
+                    <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: p.primary }} />
+                    <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: p.accent }} />
+                    {p.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
 
-        <label className="flex items-start gap-3 rounded-lg border border-gray-200 p-3">
-          <input
-            type="checkbox"
-            checked={selfSignup}
-            onChange={(e) => setSelfSignup(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-[var(--color-primary)]"
-          />
-          <span className="text-sm">
-            <span className="font-medium text-gray-800">Allow photographer self-signup</span>
-            <br />
-            <span className="text-gray-500">
-              When off, photographers can only be assigned to events by an admin.
-            </span>
-          </span>
-        </label>
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf1">Print Header Line 1</Label>
+              <Input id="pdf1" value={pdfHeader1} onChange={(e) => setPdfHeader1(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf2">
+                Print Header Line 2 <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <Input id="pdf2" value={pdfHeader2} onChange={(e) => setPdfHeader2(e.target.value)} />
+            </div>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save Branding'}
-        </button>
-      </form>
+            <label className="flex items-start gap-3 rounded-lg border border-border p-3">
+              <Checkbox
+                checked={selfSignup}
+                onCheckedChange={(v) => setSelfSignup(v === true)}
+                className="mt-0.5"
+              />
+              <span className="text-sm">
+                <span className="font-medium">Allow photographer self-signup</span>
+                <br />
+                <span className="text-muted-foreground">
+                  When off, photographers can only be assigned to events by an admin.
+                </span>
+              </span>
+            </label>
+
+            <Button type="submit" size="lg" disabled={busy} className="w-full">
+              {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save Branding'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

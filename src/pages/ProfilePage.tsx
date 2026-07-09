@@ -1,6 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { updateProfile } from '../services/users'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 export default function ProfilePage() {
   const { profile } = useAuth()
@@ -23,43 +27,41 @@ export default function ProfilePage() {
     setTimeout(() => setSaved(false), 2500)
   }
 
-  const field =
-    'mb-4 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30'
-
   return (
     <div className="mx-auto max-w-md">
-      <h2 className="mb-4 text-lg font-semibold text-gray-900">My Profile</h2>
-      <form onSubmit={submit} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
-        <input value={profile.email} disabled className={`${field} bg-gray-50 text-gray-500`} />
-
-        <label className="mb-1 block text-sm font-medium text-gray-700">Role</label>
-        <input value={profile.role} disabled className={`${field} bg-gray-50 capitalize text-gray-500`} />
-
-        <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="displayName">
-          Display Name
-        </label>
-        <input
-          id="displayName"
-          required
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          className={field}
-        />
-
-        <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor="phone">
-          Phone <span className="font-normal text-gray-400">(optional)</span>
-        </label>
-        <input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={field} />
-
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save Changes'}
-        </button>
-      </form>
+      <h2 className="mb-4 text-lg font-semibold">My Profile</h2>
+      <Card>
+        <CardContent>
+          <form onSubmit={submit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Email</Label>
+              <Input value={profile.email} disabled />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Input value={profile.role} disabled className="capitalize" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="displayName">Display Name</Label>
+              <Input
+                id="displayName"
+                required
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="phone">
+                Phone <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <Input id="phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+            <Button type="submit" size="lg" disabled={busy} className="w-full">
+              {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save Changes'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight, Printer } from 'lucide-react'
 import { useBranding } from '../../context/BrandingContext'
 import { listenEventsInRange } from '../../services/events'
 import Spinner from '../../components/Spinner'
@@ -13,6 +14,10 @@ import {
   startOfDay,
   startOfWeek,
 } from '../../lib/format'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 
 type ViewType = 'day' | 'week' | 'month'
 
@@ -93,43 +98,31 @@ export default function AdminReportsPage() {
     <div>
       {/* Controls — hidden when printing */}
       <div className="mb-4 flex flex-wrap items-center gap-3 print:hidden">
-        <div className="flex rounded-lg border border-gray-300 bg-white p-0.5 text-sm">
-          {(['day', 'week', 'month'] as ViewType[]).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`rounded-md px-4 py-1.5 font-medium capitalize ${
-                view === v ? 'bg-primary text-white' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
+        <Tabs value={view} onValueChange={(v) => setView(v as ViewType)}>
+          <TabsList>
+            <TabsTrigger value="day">Day</TabsTrigger>
+            <TabsTrigger value="week">Week</TabsTrigger>
+            <TabsTrigger value="month">Month</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-        <div className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-1 py-0.5">
-          <button onClick={() => navigate(-1)} className="rounded p-1.5 hover:bg-gray-100" aria-label="Previous">
-            ‹
-          </button>
-          <button
-            onClick={() => setRefDate(new Date())}
-            className="rounded px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100"
-          >
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon-sm" onClick={() => navigate(-1)} aria-label="Previous">
+            <ChevronLeft />
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setRefDate(new Date())}>
             Today
-          </button>
-          <button onClick={() => navigate(1)} className="rounded p-1.5 hover:bg-gray-100" aria-label="Next">
-            ›
-          </button>
+          </Button>
+          <Button variant="outline" size="icon-sm" onClick={() => navigate(1)} aria-label="Next">
+            <ChevronRight />
+          </Button>
         </div>
 
-        <span className="text-sm font-medium text-gray-700">{rangeLabel(view, refDate)}</span>
+        <span className="text-sm font-medium">{rangeLabel(view, refDate)}</span>
 
-        <button
-          onClick={() => window.print()}
-          className="ml-auto rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-        >
-          🖨 Print / Save PDF
-        </button>
+        <Button className="ml-auto" onClick={() => window.print()}>
+          <Printer /> Print / Save PDF
+        </Button>
       </div>
 
       {/* Stats — hidden when printing */}
@@ -141,15 +134,17 @@ export default function AdminReportsPage() {
       </div>
 
       {/* Printable schedule */}
-      <div data-print-root className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm print:rounded-none print:border-0 print:shadow-none">
+      <Card data-print-root className="block p-6 print:rounded-none print:border-0 print:shadow-none">
         <div className="mb-4 border-b-2 border-primary pb-3">
           <div className="flex items-baseline justify-between gap-4">
             <div>
               <h2 className="text-xl font-bold text-primary">{branding.pdfHeaderLine1}</h2>
-              {branding.pdfHeaderLine2 && <p className="text-sm text-gray-600">{branding.pdfHeaderLine2}</p>}
-              <p className="text-sm text-gray-600">{rangeLabel(view, refDate)}</p>
+              {branding.pdfHeaderLine2 && (
+                <p className="text-sm text-muted-foreground">{branding.pdfHeaderLine2}</p>
+              )}
+              <p className="text-sm text-muted-foreground">{rangeLabel(view, refDate)}</p>
             </div>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-muted-foreground/70">
               Generated: {formatDateShort(new Date())} {formatTime(new Date())}
             </p>
           </div>
@@ -160,25 +155,25 @@ export default function AdminReportsPage() {
             <Spinner />
           </div>
         ) : grouped.length === 0 ? (
-          <p className="py-8 text-center text-sm italic text-gray-500">
+          <p className="py-8 text-center text-sm italic text-muted-foreground">
             No events scheduled for this period.
           </p>
         ) : (
           <div className="space-y-6">
             {grouped.map(([key, dayEvents]) => (
               <section key={key} className="print-avoid-break">
-                <h3 className="mb-2 inline-block rounded bg-primary px-3 py-1 text-sm font-semibold text-white">
+                <h3 className="mb-2 inline-block rounded bg-primary px-3 py-1 text-sm font-semibold text-primary-foreground">
                   {formatDateLong(new Date(key))}
                 </h3>
                 <div className="overflow-x-auto">
                 <table className="w-full min-w-[540px] border-collapse text-sm">
                   <thead>
                     <tr className="bg-primary/5 text-left text-xs font-semibold uppercase tracking-wide text-primary">
-                      <th className="border border-gray-200 px-2.5 py-1.5">Event</th>
-                      <th className="border border-gray-200 px-2.5 py-1.5">Time</th>
-                      <th className="border border-gray-200 px-2.5 py-1.5">Location</th>
-                      <th className="border border-gray-200 px-2.5 py-1.5">Slots</th>
-                      <th className="border border-gray-200 px-2.5 py-1.5">Photographers</th>
+                      <th className="border border-border px-2.5 py-1.5">Event</th>
+                      <th className="border border-border px-2.5 py-1.5">Time</th>
+                      <th className="border border-border px-2.5 py-1.5">Location</th>
+                      <th className="border border-border px-2.5 py-1.5">Slots</th>
+                      <th className="border border-border px-2.5 py-1.5">Photographers</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -193,26 +188,27 @@ export default function AdminReportsPage() {
                               : 'bg-amber-50'
                         }
                       >
-                        <td className="border border-gray-200 px-2.5 py-1.5">
+                        <td className="border border-border px-2.5 py-1.5">
                           {e.eventName}
                           {e.status === 'cancelled' && (
                             <span className="ml-1 text-xs font-medium text-red-600">(cancelled)</span>
                           )}
                         </td>
-                        <td className="border border-gray-200 px-2.5 py-1.5 whitespace-nowrap">
+                        <td className="border border-border px-2.5 py-1.5 whitespace-nowrap">
                           {formatTimeRange(e.startTime, e.endTime)}
                         </td>
-                        <td className="border border-gray-200 px-2.5 py-1.5">{e.location}</td>
+                        <td className="border border-border px-2.5 py-1.5">{e.location}</td>
                         <td
-                          className={`border border-gray-200 px-2.5 py-1.5 font-semibold whitespace-nowrap ${
-                            isFull(e) ? 'text-green-700' : 'text-amber-700'
-                          }`}
+                          className={cn(
+                            'border border-border px-2.5 py-1.5 font-semibold whitespace-nowrap',
+                            isFull(e) ? 'text-green-700' : 'text-amber-700',
+                          )}
                         >
                           {e.slots.length}/{e.slotsNeeded}
                         </td>
-                        <td className="border border-gray-200 px-2.5 py-1.5">
+                        <td className="border border-border px-2.5 py-1.5">
                           {e.slots.length === 0 ? (
-                            <span className="italic text-gray-400">Unassigned</span>
+                            <span className="italic text-muted-foreground">Unassigned</span>
                           ) : (
                             e.slots.map((s) => s.photographerName).join(', ')
                           )}
@@ -226,16 +222,16 @@ export default function AdminReportsPage() {
             ))}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   )
 }
 
-function StatCard({ label, value, tone = 'text-gray-800' }: { label: string; value: number; tone?: string }) {
+function StatCard({ label, value, tone = '' }: { label: string; value: number; tone?: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-2xl font-bold ${tone}`}>{value}</p>
-    </div>
+    <Card className="gap-1 p-4">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={cn('text-2xl font-bold', tone)}>{value}</p>
+    </Card>
   )
 }
