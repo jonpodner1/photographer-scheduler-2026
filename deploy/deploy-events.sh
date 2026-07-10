@@ -22,7 +22,7 @@
 set -euo pipefail
 
 # ── EDIT THIS ─────────────────────────────────────────────────────────────────
-REPO_URL="https://github.com/YOUR_GITHUB_USER/photographer-scheduler.git"
+REPO_URL="https://github.com/jonpodner1/photographer-scheduler-2026.git"
 # ──────────────────────────────────────────────────────────────────────────────
 
 DOMAIN="events.mchsyearbook.org"
