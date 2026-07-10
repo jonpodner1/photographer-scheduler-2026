@@ -144,7 +144,10 @@ else
 fi
 
 nginx -t
-systemctl reload nginx
+# Fresh installs: nginx may not be running yet; make sure it's enabled at boot,
+# then reload if active or start it if not.
+systemctl enable --now nginx
+systemctl reload-or-restart nginx
 
 # ── HTTPS (run with --with-ssl once DNS resolves to this server) ─────────────
 if $WITH_SSL; then
