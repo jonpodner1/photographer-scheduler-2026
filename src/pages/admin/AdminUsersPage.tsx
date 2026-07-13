@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { deleteUser, listenUsers, updateUserRole } from '../../services/users'
+import { deleteUser, updateUserRole } from '../../services/users'
+import { usePhotographerStats } from '../../hooks/usePhotographerStats'
 import Modal from '../../components/Modal'
 import Spinner from '../../components/Spinner'
 import type { AppUser } from '../../types/models'
@@ -19,13 +21,11 @@ import {
 
 export default function AdminUsersPage() {
   const { profile } = useAuth()
-  const [users, setUsers] = useState<AppUser[] | null>(null)
+  const stats = usePhotographerStats()
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => listenUsers(setUsers), [])
-
-  if (!users || !profile) {
+  if (!stats || !profile) {
     return (
       <div className="flex justify-center py-16">
         <Spinner />
@@ -64,29 +64,32 @@ export default function AdminUsersPage() {
       )}
 
       <Card className="overflow-x-auto py-0">
-        <Table className="min-w-[560px]">
+        <Table className="min-w-[680px]">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
-              <TableHead>Phone</TableHead>
               <TableHead>Role</TableHead>
+              <TableHead className="text-right">Rank</TableHead>
+              <TableHead className="text-right">Events</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users.map((u) => {
+            {stats.users.map((u) => {
               const isSelf = u.uid === profile.uid
+              const s = stats.byUid.get(u.uid)
               return (
                 <TableRow key={u.uid}>
                   <TableCell className="font-medium">
-                    {u.displayName}
+                    <Link to={`/admin/users/${u.uid}`} className="text-primary hover:underline">
+                      {u.displayName}
+                    </Link>
                     {isSelf && (
                       <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>
                     )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                  <TableCell className="text-muted-foreground">{u.phone || '—'}</TableCell>
                   <TableCell>
                     <Badge
                       variant={u.role === 'admin' ? 'default' : 'secondary'}
@@ -94,6 +97,19 @@ export default function AdminUsersPage() {
                     >
                       {u.role}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    {s?.rank !== undefined ? `#${s.rank}` : '—'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {s ? (
+                      <span title={s.adjustment !== 0 ? `${s.eventCount} signups ${s.adjustment > 0 ? '+' : ''}${s.adjustment} adjustment` : undefined}>
+                        {s.score}
+                        {s.adjustment !== 0 && <span className="text-xs text-muted-foreground">*</span>}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
@@ -121,6 +137,10 @@ export default function AdminUsersPage() {
           </TableBody>
         </Table>
       </Card>
+
+      <p className="mt-2 text-xs text-muted-foreground">
+        Click a name to see that photographer's dashboard. * = includes an admin score override.
+      </p>
 
       {deleteTarget && (
         <Modal title="Delete User" onClose={() => setDeleteTarget(null)}>

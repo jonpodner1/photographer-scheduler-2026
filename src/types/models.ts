@@ -12,6 +12,8 @@ export interface AppUser {
   phone?: string | null
   photoUrl?: string | null
   fcmToken?: string | null
+  /** Admin-set score override (+/-), added to the real signup count for ranking. */
+  scoreAdjustment: number
 }
 
 export function userFromDoc(snap: DocumentSnapshot): AppUser {
@@ -24,6 +26,7 @@ export function userFromDoc(snap: DocumentSnapshot): AppUser {
     phone: d.phone ?? null,
     photoUrl: d.photoUrl ?? null,
     fcmToken: d.fcmToken ?? null,
+    scoreAdjustment: typeof d.scoreAdjustment === 'number' ? d.scoreAdjustment : 0,
   }
 }
 

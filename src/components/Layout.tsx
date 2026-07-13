@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 const photographerNav = [
+  { to: '/dashboard', label: 'Dashboard' },
   { to: '/available', label: 'Available Events' },
   { to: '/schedule', label: 'My Schedule' },
   { to: '/past', label: 'Past Events' },

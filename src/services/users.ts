@@ -25,6 +25,11 @@ export async function updateProfile(uid: string, data: { displayName: string; ph
   await updateDoc(doc(db, COL.users, uid), data)
 }
 
+/** Admin-only (enforced by rules): set the ranking score override for a user. */
+export async function updateScoreAdjustment(uid: string, scoreAdjustment: number): Promise<void> {
+  await updateDoc(doc(db, COL.users, uid), { scoreAdjustment })
+}
+
 /**
  * Deletes the user's profile document. The Firebase Auth account itself is not
  * deleted (same behavior as the Flutter app) — remove it in the console if needed.

@@ -67,6 +67,12 @@ export function listenMyEvents(uid: string, cb: EventsCallback, onError?: ErrorC
   return listen(q, cb, onError)
 }
 
+/** Every event, oldest first (dashboard/ranking stats). */
+export function listenAllEvents(cb: EventsCallback, onError?: ErrorCallback): Unsubscribe {
+  const q = query(eventsCol, orderBy('date'), orderBy('startTime'))
+  return listen(q, cb, onError)
+}
+
 /** Events before today, most recent first. */
 export function listenPastEvents(cb: EventsCallback, onError?: ErrorCallback): Unsubscribe {
   const q = query(

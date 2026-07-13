@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 import NotificationsPage from './pages/NotificationsPage'
 import ProfilePage from './pages/ProfilePage'
+import DashboardPage from './pages/photographer/DashboardPage'
 import AvailableEventsPage from './pages/photographer/AvailableEventsPage'
 import MySchedulePage from './pages/photographer/MySchedulePage'
 import PastEventsPage from './pages/photographer/PastEventsPage'
@@ -16,6 +17,7 @@ import EventFormPage from './pages/admin/EventFormPage'
 // Lazy-loaded: FullCalendar is heavy and only admins use it
 const AdminCalendarPage = lazy(() => import('./pages/admin/AdminCalendarPage'))
 import AdminUsersPage from './pages/admin/AdminUsersPage'
+import AdminPhotographerPage from './pages/admin/AdminPhotographerPage'
 import AdminReportsPage from './pages/admin/AdminReportsPage'
 import AdminBrandingPage from './pages/admin/AdminBrandingPage'
 
@@ -80,6 +82,7 @@ export default function App() {
         <Route path="/profile" element={<ProfilePage />} />
 
         {/* Photographer */}
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/available" element={<AvailableEventsPage />} />
         <Route path="/schedule" element={<MySchedulePage />} />
         <Route path="/past" element={<PastEventsPage />} />
@@ -105,6 +108,7 @@ export default function App() {
               }
             />
             <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/users/:uid" element={<AdminPhotographerPage />} />
             <Route path="/admin/reports" element={<AdminReportsPage />} />
             <Route path="/admin/branding" element={<AdminBrandingPage />} />
           </>

@@ -21,9 +21,10 @@ service cloud.firestore {
       // Admins are promoted in the console or by an existing admin via update.
       allow create: if isOwner(uid) &&
         request.resource.data.role == 'photographer';
-      // Users may edit their own doc but never their role; admins may edit anyone.
+      // Users may edit their own doc but never their role or their ranking
+      // score override; admins may edit anyone.
       allow update: if isAdmin() ||
-        (isOwner(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+        (isOwner(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'scoreAdjustment']));
       allow delete: if isAdmin();
     }
 
