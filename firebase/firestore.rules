@@ -2,18 +2,92 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // This project hosts TWO apps: the MCHS iOS app (users, games) and the
+    // photographer scheduler (scheduler_*). A Firebase project has exactly one
+    // Firestore ruleset, so BOTH apps' rules must live in this file — deploying
+    // a file with only one app's rules locks the other app out.
+    // ═══════════════════════════════════════════════════════════════════════
+
     function isAuthenticated() {
       return request.auth != null;
-    }
-
-    function isAdmin() {
-      return isAuthenticated() &&
-        get(/databases/$(database)/documents/scheduler_users/$(request.auth.uid)).data.role == 'admin';
     }
 
     function isOwner(uid) {
       return isAuthenticated() && request.auth.uid == uid;
     }
+
+    // ── Role helpers ─────────────────────────────────────────────────────────
+
+    // MCHS iOS app: capability flags live on users/{uid}.
+    function isAppAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    function isAppScorekeeper() {
+      return isAppAdmin() ||
+        (isAuthenticated() &&
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isScorekeeper == true);
+    }
+
+    // Scheduler web app: role lives on scheduler_users/{uid}.
+    function isSchedulerAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/scheduler_users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/scheduler_users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Scheduler admin = web admin OR iOS-app admin (one admin team, two apps).
+    function isAdmin() {
+      return isSchedulerAdmin() || isAppAdmin();
+    }
+
+    // ═══ MCHS iOS app ═══════════════════════════════════════════════════════
+    // Preserved verbatim from the app's original ruleset (2026-06-29), with
+    // helpers renamed isAdmin→isAppAdmin / isScorekeeper→isAppScorekeeper.
+
+    match /users/{userId} {
+      // Own doc, or any doc if admin (admin needs to list pending requests).
+      allow read: if request.auth != null && (request.auth.uid == userId || isAppAdmin());
+
+      // Self-signup: own doc only, capability flags MUST be false.
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.isAdmin == false
+        && request.resource.data.isScorekeeper == false
+        && request.resource.data.isPhotographer == false;
+
+      // Only an admin may update (approve/deny/revoke). Even an admin cannot
+      // change the isAdmin flag from the app -- that stays a console action.
+      allow update: if isAppAdmin()
+        && request.resource.data.isAdmin == resource.data.isAdmin;
+
+      allow delete: if false;
+
+      // A user manages their own follows (which games they follow).
+      match /follows/{gameId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    match /games/{gameId} {
+      // Anyone may read games -- this is the public Scores list.
+      allow read: if true;
+
+      // Only admins create games.
+      allow create: if isAppAdmin();
+
+      // Any scorekeeper may update (claim / score / release). The atomic
+      // claim transaction enforces one-scorekeeper-per-game at the data level.
+      allow update: if isAppScorekeeper();
+
+      allow delete: if false;
+    }
+
+    // ═══ Photographer scheduler ═════════════════════════════════════════════
 
     match /scheduler_users/{uid} {
       allow read: if isAuthenticated();

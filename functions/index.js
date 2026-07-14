@@ -24,6 +24,10 @@ const db = getFirestore();
 const USERS = "scheduler_users";
 const EVENTS = "scheduler_events";
 const NOTIFICATIONS = "scheduler_notifications";
+// The MCHS iOS app's own user collection. iOS users don't have scheduler_users
+// docs — their photographer/admin capability lives on users/{uid} as booleans
+// (isPhotographer / isAdmin), so identity is resolved from either collection.
+const APP_USERS = "users";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -40,12 +44,50 @@ function requireAuth(request) {
   return request.auth.uid;
 }
 
+/**
+ * Maps a scheduler_users doc or an iOS-app users doc to one shape:
+ * { displayName, role: 'admin'|'photographer', active: bool, fcmToken }.
+ * Returns null if neither doc exists.
+ */
+function normalizeProfile(schedulerSnap, appSnap) {
+  if (schedulerSnap && schedulerSnap.exists) {
+    const d = schedulerSnap.data();
+    return {
+      displayName: d.displayName || d.email || "Photographer",
+      role: d.role === "admin" ? "admin" : "photographer",
+      active: d.status !== "pending" && d.status !== "denied",
+      fcmToken: d.fcmToken || (appSnap && appSnap.exists ? appSnap.data().fcmToken : null) || null,
+    };
+  }
+  if (appSnap && appSnap.exists) {
+    const d = appSnap.data();
+    const name = `${d.firstName || ""} ${d.lastName || ""}`.trim();
+    return {
+      displayName: name || d.email || "Photographer",
+      role: d.isAdmin === true ? "admin" : "photographer",
+      // iOS approval = the isPhotographer capability flag (admins implicitly ok)
+      active: d.isPhotographer === true || d.isAdmin === true,
+      fcmToken: d.fcmToken || null,
+    };
+  }
+  return null;
+}
+
+/** Loads a user from scheduler_users, falling back to the iOS app's users collection. */
+async function resolveProfile(uid) {
+  const [schedulerSnap, appSnap] = await Promise.all([
+    db.collection(USERS).doc(uid).get(),
+    db.collection(APP_USERS).doc(uid).get(),
+  ]);
+  return normalizeProfile(schedulerSnap, appSnap);
+}
+
 async function requireAdmin(uid) {
-  const snap = await db.collection(USERS).doc(uid).get();
-  if (!snap.exists || snap.data().role !== "admin") {
+  const profile = await resolveProfile(uid);
+  if (!profile || profile.role !== "admin") {
     throw new HttpsError("permission-denied", "Admin access required.");
   }
-  return snap.data();
+  return profile;
 }
 
 /** Writes one notification doc per (userId) entry. Chunked to stay under the 500-op batch limit. */
@@ -63,9 +105,31 @@ async function writeNotifications(entries) {
   }
 }
 
-async function getUsersByRole(role) {
-  const snap = await db.collection(USERS).where("role", "==", role).get();
-  return snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+/** Admins from both user collections, deduped by uid. */
+async function getAdmins() {
+  const [web, app] = await Promise.all([
+    db.collection(USERS).where("role", "==", "admin").get(),
+    db.collection(APP_USERS).where("isAdmin", "==", true).get(),
+  ]);
+  const byUid = new Map();
+  web.docs.forEach((d) => byUid.set(d.id, { uid: d.id, ...d.data() }));
+  app.docs.forEach((d) => { if (!byUid.has(d.id)) byUid.set(d.id, { uid: d.id, ...d.data() }); });
+  return [...byUid.values()];
+}
+
+/** Approved photographers from both user collections, deduped by uid. */
+async function getPhotographers() {
+  const [web, app] = await Promise.all([
+    db.collection(USERS).where("role", "==", "photographer").get(),
+    db.collection(APP_USERS).where("isPhotographer", "==", true).get(),
+  ]);
+  const byUid = new Map();
+  web.docs.forEach((d) => {
+    const u = d.data();
+    if (u.status !== "pending" && u.status !== "denied") byUid.set(d.id, { uid: d.id, ...u });
+  });
+  app.docs.forEach((d) => { if (!byUid.has(d.id)) byUid.set(d.id, { uid: d.id, ...d.data() }); });
+  return [...byUid.values()];
 }
 
 // ─── signUpForEvent ───────────────────────────────────────────────────────────
@@ -77,16 +141,20 @@ exports.signUpForEvent = onCall(async (request) => {
   if (!eventId) throw new HttpsError("invalid-argument", "eventId is required.");
 
   const eventRef = db.collection(EVENTS).doc(eventId);
-  const userRef = db.collection(USERS).doc(uid);
 
   const event = await db.runTransaction(async (txn) => {
-    const [eventSnap, userSnap] = await Promise.all([txn.get(eventRef), txn.get(userRef)]);
+    const [eventSnap, schedulerSnap, appSnap] = await txn.getAll(
+      eventRef,
+      db.collection(USERS).doc(uid),
+      db.collection(APP_USERS).doc(uid),
+    );
     if (!eventSnap.exists) throw new HttpsError("not-found", "Event not found.");
-    if (!userSnap.exists) throw new HttpsError("failed-precondition", "User profile not found.");
 
-    // Accounts awaiting approval (or denied) cannot take slots.
-    const callerStatus = userSnap.data().status;
-    if (callerStatus === "pending" || callerStatus === "denied") {
+    const profile = normalizeProfile(schedulerSnap, appSnap);
+    if (!profile) throw new HttpsError("failed-precondition", "User profile not found.");
+    // Web accounts awaiting approval / iOS accounts without the photographer
+    // capability cannot take slots.
+    if (!profile.active) {
       throw new HttpsError("permission-denied", "Your account has not been approved yet.");
     }
 
@@ -107,7 +175,7 @@ exports.signUpForEvent = onCall(async (request) => {
       ...slots,
       {
         photographerId: uid,
-        photographerName: userSnap.data().displayName || "Photographer",
+        photographerName: profile.displayName,
         acceptedAt: Timestamp.now(),
         requestedCamera: Boolean(requestedCamera),
       },
@@ -119,12 +187,12 @@ exports.signUpForEvent = onCall(async (request) => {
       status: newSlots.length >= data.slotsNeeded ? "filled" : "open",
     });
 
-    return { ...data, newSlotName: userSnap.data().displayName || "Photographer" };
+    return { ...data, newSlotName: profile.displayName };
   });
 
   // Notify admins (server-side fan-out; previously done in the Flutter client).
   try {
-    const admins = await getUsersByRole("admin");
+    const admins = await getAdmins();
     await writeNotifications(
       admins.map((a) => ({
         userId: a.uid,
@@ -209,19 +277,21 @@ exports.assignPhotographer = onCall(async (request) => {
   }
 
   const eventRef = db.collection(EVENTS).doc(eventId);
-  const photographerRef = db.collection(USERS).doc(photographerId);
 
   const event = await db.runTransaction(async (txn) => {
-    const [eventSnap, photographerSnap] = await Promise.all([
-      txn.get(eventRef),
-      txn.get(photographerRef),
-    ]);
+    const [eventSnap, schedulerSnap, appSnap] = await txn.getAll(
+      eventRef,
+      db.collection(USERS).doc(photographerId),
+      db.collection(APP_USERS).doc(photographerId),
+    );
     if (!eventSnap.exists) throw new HttpsError("not-found", "Event not found.");
-    if (!photographerSnap.exists) throw new HttpsError("not-found", "Photographer not found.");
+
+    const photographer = normalizeProfile(schedulerSnap, appSnap);
+    if (!photographer) throw new HttpsError("not-found", "Photographer not found.");
 
     const data = eventSnap.data();
     const slots = data.slots || [];
-    const name = photographerSnap.data().displayName || "Photographer";
+    const name = photographer.displayName;
 
     if (slots.some((s) => s.photographerId === photographerId)) {
       throw new HttpsError("already-exists", `${name} is already assigned to this event.`);
@@ -277,9 +347,7 @@ exports.onEventCreated = onDocumentCreated(`${EVENTS}/{eventId}`, async (event) 
   const data = event.data.data();
   if (data.notifyOnCreate === false) return;
 
-  const photographers = (await getUsersByRole("photographer")).filter(
-    (p) => p.status !== "pending" && p.status !== "denied"
-  );
+  const photographers = await getPhotographers();
   await writeNotifications(
     photographers.map((p) => ({
       userId: p.uid,
@@ -299,7 +367,7 @@ exports.onUserCreated = onDocumentCreated(`${USERS}/{uid}`, async (event) => {
   const data = event.data.data();
   if (data.status !== "pending") return;
 
-  const admins = await getUsersByRole("admin");
+  const admins = await getAdmins();
   await writeNotifications(
     admins.map((a) => ({
       userId: a.uid,
@@ -352,9 +420,9 @@ exports.onEventUpdated = onDocumentUpdated(`${EVENTS}/{eventId}`, async (event) 
 });
 
 // ─── Push notifications ───────────────────────────────────────────────────────
-// Ported from the Flutter project's sendPushNotification, pointed at the
-// scheduler_* collections. The APNs payload is kept for the future iOS client;
-// web clients simply won't have an fcmToken and are skipped.
+// Forwards each in-app notification via FCM. The token is looked up on
+// scheduler_users first, then the iOS app's users doc (which is where the MCHS
+// app stores its fcmToken) — so scheduler notices reach iOS devices too.
 exports.sendPushNotification = onDocumentCreated(
   `${NOTIFICATIONS}/{notifId}`,
   async (event) => {
@@ -362,10 +430,8 @@ exports.sendPushNotification = onDocumentCreated(
     const userId = notification.userId;
     if (!userId) return null;
 
-    const userDoc = await db.collection(USERS).doc(userId).get();
-    if (!userDoc.exists) return null;
-
-    const fcmToken = userDoc.data().fcmToken;
+    const profile = await resolveProfile(userId);
+    const fcmToken = profile && profile.fcmToken;
     if (!fcmToken) return null;
 
     const message = {
