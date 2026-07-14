@@ -15,6 +15,7 @@ const {
   onDocumentUpdated,
 } = require("firebase-functions/v2/firestore");
 const { initializeApp } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 
@@ -262,6 +263,57 @@ exports.withdrawFromEvent = onCall(async (request) => {
     }
   }
 
+  return { ok: true };
+});
+
+// ─── deleteAccount ────────────────────────────────────────────────────────────
+// Self-service account deletion (App Store guideline 5.1.1(v)). Removes the
+// caller from every event slot, deletes their notifications, follows, and
+// profile docs in both user collections, then deletes the Auth account.
+// Server-side deletion also avoids Firebase's "recent login required" error.
+exports.deleteAccount = onCall(async (request) => {
+  const uid = requireAuth(request);
+
+  // Remove from all event slots (their name is personal data).
+  const eventsSnap = await db
+    .collection(EVENTS)
+    .where("photographerIds", "array-contains", uid)
+    .get();
+  for (const doc of eventsSnap.docs) {
+    await db.runTransaction(async (txn) => {
+      const snap = await txn.get(doc.ref);
+      if (!snap.exists) return;
+      const data = snap.data();
+      const slots = (data.slots || []).filter((s) => s.photographerId !== uid);
+      txn.update(doc.ref, {
+        slots,
+        photographerIds: slots.map((s) => s.photographerId),
+        status:
+          data.status === "cancelled"
+            ? "cancelled"
+            : slots.length >= data.slotsNeeded
+              ? data.status
+              : "open",
+      });
+    });
+  }
+
+  // Their notifications.
+  const notifs = await db.collection(NOTIFICATIONS).where("userId", "==", uid).get();
+  for (let i = 0; i < notifs.docs.length; i += 400) {
+    const batch = db.batch();
+    notifs.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+
+  // iOS app subcollection (game follows), then both profile docs.
+  const follows = await db.collection(APP_USERS).doc(uid).collection("follows").get();
+  for (const d of follows.docs) await d.ref.delete();
+  await db.collection(USERS).doc(uid).delete();
+  await db.collection(APP_USERS).doc(uid).delete();
+
+  // Auth account last, so a failure above leaves the user able to retry.
+  await getAuth().deleteUser(uid);
   return { ok: true };
 });
 
