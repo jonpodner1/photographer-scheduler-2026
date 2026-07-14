@@ -25,6 +25,11 @@ export async function updateProfile(uid: string, data: { displayName: string; ph
   await updateDoc(doc(db, COL.users, uid), data)
 }
 
+/** Admin-only (enforced by rules): approve or deny a pending signup. */
+export async function setUserStatus(uid: string, status: 'active' | 'denied'): Promise<void> {
+  await updateDoc(doc(db, COL.users, uid), { status })
+}
+
 /** Admin-only (enforced by rules): set the ranking score override for a user. */
 export async function updateScoreAdjustment(uid: string, scoreAdjustment: number): Promise<void> {
   await updateDoc(doc(db, COL.users, uid), { scoreAdjustment })

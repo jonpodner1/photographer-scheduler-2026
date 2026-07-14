@@ -61,9 +61,9 @@ export function usePhotographerStats(): StatsData | null {
       })
     }
 
-    // Rank photographers by score (competition ranking: ties share a rank).
+    // Rank approved photographers by score (competition ranking: ties share a rank).
     const ranked = [...byUid.values()]
-      .filter((s) => s.user.role === 'photographer')
+      .filter((s) => s.user.role === 'photographer' && s.user.status === 'active')
       .sort((a, b) => b.score - a.score || a.user.displayName.localeCompare(b.user.displayName))
     ranked.forEach((s, i) => {
       s.rank = i > 0 && ranked[i - 1].score === s.score ? ranked[i - 1].rank : i + 1

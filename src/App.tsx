@@ -6,6 +6,7 @@ import Layout from './components/Layout'
 import Spinner from './components/Spinner'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
+import AccountStatusPage from './pages/AccountStatusPage'
 import NotificationsPage from './pages/NotificationsPage'
 import ProfilePage from './pages/ProfilePage'
 import DashboardPage from './pages/photographer/DashboardPage'
@@ -66,6 +67,16 @@ export default function App() {
     return (
       <Routes>
         <Route path="*" element={<LoginPage missingProfile />} />
+      </Routes>
+    )
+  }
+
+  // Awaiting admin approval / denied — no app access. The profile doc is
+  // live-subscribed, so approval flips this instantly without a reload.
+  if (profile.status !== 'active') {
+    return (
+      <Routes>
+        <Route path="*" element={<AccountStatusPage denied={profile.status === 'denied'} />} />
       </Routes>
     )
   }

@@ -130,12 +130,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, displayName: string, phone: string) => {
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password)
-      // New accounts are always photographers — security rules enforce this;
-      // admins are promoted by an existing admin (or in the console).
+      // New accounts are always photographers awaiting admin approval —
+      // security rules enforce both; admins promote/approve from the Users tab.
       await setDoc(doc(db, COL.users, cred.user.uid), {
         email,
         displayName,
         role: 'photographer',
+        status: 'pending',
         phone: phone || null,
         photoUrl: null,
         createdAt: serverTimestamp(),

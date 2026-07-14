@@ -4,6 +4,13 @@ import type { DocumentSnapshot, Timestamp } from 'firebase/firestore'
 
 export type UserRole = 'admin' | 'photographer'
 
+/**
+ * Account approval state. New signups start 'pending' and an admin approves or
+ * denies them. Docs without the field (created before this feature, or by an
+ * admin in the console) are treated as 'active'.
+ */
+export type UserStatus = 'pending' | 'active' | 'denied'
+
 export interface AppUser {
   uid: string
   email: string
@@ -14,6 +21,7 @@ export interface AppUser {
   fcmToken?: string | null
   /** Admin-set score override (+/-), added to the real signup count for ranking. */
   scoreAdjustment: number
+  status: UserStatus
 }
 
 export function userFromDoc(snap: DocumentSnapshot): AppUser {
@@ -27,6 +35,7 @@ export function userFromDoc(snap: DocumentSnapshot): AppUser {
     photoUrl: d.photoUrl ?? null,
     fcmToken: d.fcmToken ?? null,
     scoreAdjustment: typeof d.scoreAdjustment === 'number' ? d.scoreAdjustment : 0,
+    status: d.status === 'pending' ? 'pending' : d.status === 'denied' ? 'denied' : 'active',
   }
 }
 
@@ -111,6 +120,8 @@ export type NotificationType =
   | 'photographerRemoved'
   | 'eventCancelled'
   | 'assignedToEvent'
+  | 'accountPending'
+  | 'accountApproved'
 
 export interface AppNotification {
   id: string
@@ -132,6 +143,8 @@ export function notificationFromDoc(snap: DocumentSnapshot): AppNotification {
     'photographerRemoved',
     'eventCancelled',
     'assignedToEvent',
+    'accountPending',
+    'accountApproved',
   ]
   return {
     id: snap.id,

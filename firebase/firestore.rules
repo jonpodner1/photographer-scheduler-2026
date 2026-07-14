@@ -17,14 +17,16 @@ service cloud.firestore {
 
     match /scheduler_users/{uid} {
       allow read: if isAuthenticated();
-      // Privilege-escalation fix: self-created accounts are always photographers.
-      // Admins are promoted in the console or by an existing admin via update.
+      // Privilege-escalation fix: self-created accounts are always photographers
+      // and always start pending admin approval. Admins are promoted in the
+      // console or by an existing admin via update.
       allow create: if isOwner(uid) &&
-        request.resource.data.role == 'photographer';
-      // Users may edit their own doc but never their role or their ranking
-      // score override; admins may edit anyone.
+        request.resource.data.role == 'photographer' &&
+        request.resource.data.status == 'pending';
+      // Users may edit their own doc but never their role, approval status, or
+      // ranking score override; admins may edit anyone.
       allow update: if isAdmin() ||
-        (isOwner(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'scoreAdjustment']));
+        (isOwner(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'scoreAdjustment', 'status']));
       allow delete: if isAdmin();
     }
 

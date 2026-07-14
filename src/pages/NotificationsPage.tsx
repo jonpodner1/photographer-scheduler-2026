@@ -20,6 +20,8 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   photographerRemoved: '🚫',
   eventCancelled: '❌',
   assignedToEvent: '📸',
+  accountPending: '🆕',
+  accountApproved: '✅',
 }
 
 export default function NotificationsPage() {

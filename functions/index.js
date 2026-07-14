@@ -84,6 +84,12 @@ exports.signUpForEvent = onCall(async (request) => {
     if (!eventSnap.exists) throw new HttpsError("not-found", "Event not found.");
     if (!userSnap.exists) throw new HttpsError("failed-precondition", "User profile not found.");
 
+    // Accounts awaiting approval (or denied) cannot take slots.
+    const callerStatus = userSnap.data().status;
+    if (callerStatus === "pending" || callerStatus === "denied") {
+      throw new HttpsError("permission-denied", "Your account has not been approved yet.");
+    }
+
     const data = eventSnap.data();
     const slots = data.slots || [];
 
@@ -271,7 +277,9 @@ exports.onEventCreated = onDocumentCreated(`${EVENTS}/{eventId}`, async (event) 
   const data = event.data.data();
   if (data.notifyOnCreate === false) return;
 
-  const photographers = await getUsersByRole("photographer");
+  const photographers = (await getUsersByRole("photographer")).filter(
+    (p) => p.status !== "pending" && p.status !== "denied"
+  );
   await writeNotifications(
     photographers.map((p) => ({
       userId: p.uid,
@@ -282,6 +290,43 @@ exports.onEventCreated = onDocumentCreated(`${EVENTS}/{eventId}`, async (event) 
       eventName: data.eventName,
     }))
   );
+});
+
+// ─── Account approval workflow ────────────────────────────────────────────────
+// New signups start status='pending' (enforced by security rules). Tell every
+// admin there's an account to review, and tell the user when they're approved.
+exports.onUserCreated = onDocumentCreated(`${USERS}/{uid}`, async (event) => {
+  const data = event.data.data();
+  if (data.status !== "pending") return;
+
+  const admins = await getUsersByRole("admin");
+  await writeNotifications(
+    admins.map((a) => ({
+      userId: a.uid,
+      type: "accountPending",
+      title: "New Account Awaiting Approval",
+      body: `${data.displayName || data.email} signed up and is waiting for approval`,
+      eventId: "",
+      eventName: "",
+    }))
+  );
+});
+
+exports.onUserUpdated = onDocumentUpdated(`${USERS}/{uid}`, async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+  if (before.status !== "pending" || after.status !== "active") return;
+
+  await writeNotifications([
+    {
+      userId: event.params.uid,
+      type: "accountApproved",
+      title: "Account Approved",
+      body: "Your account has been approved — you can now sign up for events!",
+      eventId: "",
+      eventName: "",
+    },
+  ]);
 });
 
 // ─── Cancellation fan-out ─────────────────────────────────────────────────────

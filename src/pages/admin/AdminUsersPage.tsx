@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { deleteUser, updateUserRole } from '../../services/users'
+import { deleteUser, setUserStatus, updateUserRole } from '../../services/users'
 import { usePhotographerStats } from '../../hooks/usePhotographerStats'
 import Modal from '../../components/Modal'
 import Spinner from '../../components/Spinner'
@@ -53,6 +53,17 @@ export default function AdminUsersPage() {
     }
   }
 
+  const changeStatus = async (u: AppUser, status: 'active' | 'denied') => {
+    setError(null)
+    try {
+      await setUserStatus(u.uid, status)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const pending = stats.users.filter((u) => u.status === 'pending')
+
   return (
     <div>
       <h2 className="mb-4 text-lg font-semibold">Users</h2>
@@ -61,6 +72,36 @@ export default function AdminUsersPage() {
         <Alert variant="destructive" className="mb-4">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+
+      {pending.length > 0 && (
+        <Card className="mb-6 gap-3 border-amber-300 bg-amber-50/50 p-4">
+          <h3 className="text-sm font-semibold text-amber-900">
+            Pending approval ({pending.length})
+          </h3>
+          <ul className="divide-y divide-amber-200/60">
+            {pending.map((u) => (
+              <li key={u.uid} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{u.displayName}</p>
+                  <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => changeStatus(u, 'active')}>
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => changeStatus(u, 'denied')}
+                  >
+                    Deny
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
       <Card className="overflow-x-auto py-0">
@@ -76,11 +117,13 @@ export default function AdminUsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {stats.users.map((u) => {
+            {stats.users
+              .filter((u) => u.status !== 'pending')
+              .map((u) => {
               const isSelf = u.uid === profile.uid
               const s = stats.byUid.get(u.uid)
               return (
-                <TableRow key={u.uid}>
+                <TableRow key={u.uid} className={u.status === 'denied' ? 'opacity-60' : ''}>
                   <TableCell className="font-medium">
                     <Link to={`/admin/users/${u.uid}`} className="text-primary hover:underline">
                       {u.displayName}
@@ -97,6 +140,11 @@ export default function AdminUsersPage() {
                     >
                       {u.role}
                     </Badge>
+                    {u.status === 'denied' && (
+                      <Badge variant="outline" className="ml-1.5 border-transparent bg-red-100 text-red-700">
+                        denied
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {s?.rank !== undefined ? `#${s.rank}` : '—'}
@@ -112,6 +160,11 @@ export default function AdminUsersPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
+                    {u.status === 'denied' && (
+                      <Button variant="link" size="xs" onClick={() => changeStatus(u, 'active')}>
+                        Approve
+                      </Button>
+                    )}
                     <Button
                       variant="link"
                       size="xs"
