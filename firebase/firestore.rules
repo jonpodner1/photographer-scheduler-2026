@@ -62,13 +62,23 @@ service cloud.firestore {
 
       // Only an admin may update (approve/deny/revoke). Even an admin cannot
       // change the isAdmin flag from the app -- that stays a console action.
-      allow update: if isAppAdmin()
-        && request.resource.data.isAdmin == resource.data.isAdmin;
+      // Exception: a user may update their own device push-token fields
+      // (FCM token + Live Activity tokens) and nothing else.
+      allow update: if (isAppAdmin()
+          && request.resource.data.isAdmin == resource.data.isAdmin)
+        || (request.auth != null && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ['fcmToken', 'fcmTokenUpdatedAt', 'pushToStartToken', 'pushTokenUpdatedAt']));
 
       allow delete: if false;
 
       // A user manages their own follows (which games they follow).
       match /follows/{gameId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Device Live Activity update tokens (written by LiveActivityPushManager).
+      match /activityTokens/{activityId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }
