@@ -80,6 +80,39 @@ firebase.json            Wires rules/indexes/functions/emulators
 .env.example             Template for .env.local (VITE_FIREBASE_* config)
 ```
 
+## Photo Drop (Dropbox) setup — one time
+
+The iOS app's Photo Drop uploads student photos to the yearbook's Dropbox via
+the `uploadPhotoToDropbox` Cloud Function. The Dropbox credentials live in
+Secret Manager, never in the app. To set up:
+
+1. **Create the Dropbox app**: [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps)
+   → Create app → **Scoped access** → **App folder** (uploads land in
+   `Apps/<your-app-name>/`, isolated from the rest of your Dropbox) → name it
+   (e.g. "MCHS Photo Drop").
+2. **Permissions tab**: check `files.content.write` → Submit.
+3. **Settings tab**: note the **App key** and **App secret**.
+4. **Mint a refresh token** (signed into the yearbook's Dropbox account):
+   - Open (with YOUR_APP_KEY substituted):
+     `https://www.dropbox.com/oauth2/authorize?client_id=YOUR_APP_KEY&response_type=code&token_access_type=offline`
+   - Approve, copy the code shown, then:
+     ```bash
+     curl https://api.dropbox.com/oauth2/token \
+       -d code=THE_CODE -d grant_type=authorization_code \
+       -u YOUR_APP_KEY:YOUR_APP_SECRET
+     ```
+   - Copy the `refresh_token` from the response.
+5. **Store the secrets** (from this folder; each prompts for the value):
+   ```bash
+   firebase functions:secrets:set DROPBOX_APP_KEY
+   firebase functions:secrets:set DROPBOX_APP_SECRET
+   firebase functions:secrets:set DROPBOX_REFRESH_TOKEN
+   ```
+6. Deploy: `firebase deploy --only functions,firestore`
+
+Uploads are filed as `/YYYY-MM-DD/Name - caption - timestamp.jpg` and logged
+to the `photo_submissions` collection (admins see everyone's, users their own).
+
 ## Architecture notes
 
 - **Signups are transactional.** The browser never writes `slots` directly;

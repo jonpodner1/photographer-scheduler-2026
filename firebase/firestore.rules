@@ -127,6 +127,15 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    // ═══ Photo Drop submissions (shared by both apps) ═══════════════════════
+    // Created only by the uploadPhotoToDropbox Cloud Function. Users see their
+    // own submissions; admins see everyone's.
+    match /photo_submissions/{submissionId} {
+      allow read: if isAdmin() ||
+        (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
     match /scheduler_notifications/{notifId} {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
       // Notifications are only created server-side (Cloud Functions).

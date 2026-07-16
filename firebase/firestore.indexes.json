@@ -43,6 +43,14 @@
       ]
     },
     {
+      "collectionGroup": "photo_submissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "scheduler_notifications",
       "queryScope": "COLLECTION",
       "fields": [

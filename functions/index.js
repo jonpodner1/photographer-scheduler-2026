@@ -14,6 +14,7 @@ const {
   onDocumentCreated,
   onDocumentUpdated,
 } = require("firebase-functions/v2/firestore");
+const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
@@ -47,7 +48,7 @@ function requireAuth(request) {
 
 /**
  * Maps a scheduler_users doc or an iOS-app users doc to one shape:
- * { displayName, role: 'admin'|'photographer', active: bool, fcmToken }.
+ * { displayName, email, role: 'admin'|'photographer', active: bool, fcmToken }.
  * Returns null if neither doc exists.
  */
 function normalizeProfile(schedulerSnap, appSnap) {
@@ -55,6 +56,7 @@ function normalizeProfile(schedulerSnap, appSnap) {
     const d = schedulerSnap.data();
     return {
       displayName: d.displayName || d.email || "Photographer",
+      email: d.email || "",
       role: d.role === "admin" ? "admin" : "photographer",
       active: d.status !== "pending" && d.status !== "denied",
       fcmToken: d.fcmToken || (appSnap && appSnap.exists ? appSnap.data().fcmToken : null) || null,
@@ -65,6 +67,7 @@ function normalizeProfile(schedulerSnap, appSnap) {
     const name = `${d.firstName || ""} ${d.lastName || ""}`.trim();
     return {
       displayName: name || d.email || "Photographer",
+      email: d.email || "",
       role: d.isAdmin === true ? "admin" : "photographer",
       // iOS approval = the isPhotographer capability flag (admins implicitly ok)
       active: d.isPhotographer === true || d.isAdmin === true,
@@ -316,6 +319,127 @@ exports.deleteAccount = onCall(async (request) => {
   await getAuth().deleteUser(uid);
   return { ok: true };
 });
+
+// ─── Photo Drop: upload to the school Dropbox ─────────────────────────────────
+// Any signed-in user with a profile can submit photos. The Dropbox credentials
+// live in Secret Manager (never in the app), uploads land in the Dropbox app
+// folder under /YYYY-MM-DD/, filenames carry the submitter's name, and every
+// upload is logged to photo_submissions so admins can see who sent what.
+//
+// One-time setup (see README): create a scoped Dropbox app, mint a refresh
+// token, then `firebase functions:secrets:set` DROPBOX_APP_KEY,
+// DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN.
+const DROPBOX_APP_KEY = defineSecret("DROPBOX_APP_KEY");
+const DROPBOX_APP_SECRET = defineSecret("DROPBOX_APP_SECRET");
+const DROPBOX_REFRESH_TOKEN = defineSecret("DROPBOX_REFRESH_TOKEN");
+
+// Short-lived Dropbox access token, cached per function instance.
+let dropboxAccess = { token: null, expiresAt: 0 };
+
+async function dropboxAccessToken() {
+  if (dropboxAccess.token && Date.now() < dropboxAccess.expiresAt - 60_000) {
+    return dropboxAccess.token;
+  }
+  const basic = Buffer.from(
+    `${DROPBOX_APP_KEY.value()}:${DROPBOX_APP_SECRET.value()}`
+  ).toString("base64");
+  const res = await fetch("https://api.dropbox.com/oauth2/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${basic}`,
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: DROPBOX_REFRESH_TOKEN.value(),
+    }),
+  });
+  if (!res.ok) {
+    console.error("Dropbox token refresh failed:", res.status, await res.text());
+    throw new HttpsError("internal", "Dropbox authentication failed — check the Dropbox secrets.");
+  }
+  const json = await res.json();
+  dropboxAccess = {
+    token: json.access_token,
+    expiresAt: Date.now() + (json.expires_in || 14400) * 1000,
+  };
+  return dropboxAccess.token;
+}
+
+/** Strip characters Dropbox filenames can't take, collapse whitespace. */
+function safeFileComponent(s, maxLength) {
+  return (s || "")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+exports.uploadPhotoToDropbox = onCall(
+  {
+    secrets: [DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN],
+    memory: "512MiB",
+    timeoutSeconds: 120,
+  },
+  async (request) => {
+    const uid = requireAuth(request);
+    const profile = await resolveProfile(uid);
+    if (!profile) throw new HttpsError("failed-precondition", "User profile not found.");
+
+    const { imageBase64, caption = "", contentType = "image/jpeg" } = request.data || {};
+    if (!imageBase64 || typeof imageBase64 !== "string") {
+      throw new HttpsError("invalid-argument", "imageBase64 is required.");
+    }
+    // ~20 MB binary ceiling (callable requests cap at 32 MB with base64 overhead).
+    if (imageBase64.length > 28_000_000) {
+      throw new HttpsError("invalid-argument", "Photo is too large — please try a smaller one.");
+    }
+
+    let buffer;
+    try {
+      buffer = Buffer.from(imageBase64, "base64");
+    } catch {
+      throw new HttpsError("invalid-argument", "Invalid image data.");
+    }
+
+    // /2026-07-16/Jon Podner - homecoming parade - 1721145600000.jpg
+    const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+    const who = safeFileComponent(profile.displayName, 40) || "Unknown";
+    const what = safeFileComponent(caption, 40);
+    const ext = contentType === "image/png" ? "png" : contentType === "image/heic" ? "heic" : "jpg";
+    const path = `/${day}/${who}${what ? ` - ${what}` : ""} - ${Date.now()}.${ext}`;
+
+    const token = await dropboxAccessToken();
+    const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/octet-stream",
+        "Dropbox-API-Arg": JSON.stringify({ path, mode: "add", autorename: true, mute: true }),
+      },
+      body: buffer,
+    });
+    if (!res.ok) {
+      console.error("Dropbox upload failed:", res.status, await res.text());
+      throw new HttpsError("internal", "Upload to Dropbox failed. Please try again.");
+    }
+    const meta = await res.json();
+
+    // Submission log: who sent what, when, and where it landed.
+    await db.collection("photo_submissions").add({
+      uid,
+      name: profile.displayName,
+      email: profile.email || "",
+      caption: caption.slice(0, 200),
+      fileName: meta.name,
+      dropboxPath: meta.path_display,
+      size: meta.size || buffer.length,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return { ok: true, fileName: meta.name };
+  }
+);
 
 // ─── assignPhotographer (admin only) ─────────────────────────────────────────
 // May exceed slotsNeeded, matching the Flutter admin behavior.
