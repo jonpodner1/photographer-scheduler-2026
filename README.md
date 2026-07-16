@@ -80,38 +80,35 @@ firebase.json            Wires rules/indexes/functions/emulators
 .env.example             Template for .env.local (VITE_FIREBASE_* config)
 ```
 
-## Photo Drop (Dropbox) setup — one time
+## Photo Drop (Wasabi) setup — one time
 
-The iOS app's Photo Drop uploads student photos to the yearbook's Dropbox via
-the `uploadPhotoToDropbox` Cloud Function. The Dropbox credentials live in
-Secret Manager, never in the app. To set up:
+The iOS app's Photo Drop sends student photos/videos to a Wasabi storage
+bucket (S3-compatible). Devices upload **directly** to the bucket using
+short-lived presigned URLs minted by the `createUploadUrl` Cloud Function —
+so files up to 2 GB work, credentials never ship in the app, and the server
+controls filenames. `completeUpload` verifies the object landed and finalizes
+the submission log. To set up:
 
-1. **Create the Dropbox app**: [dropbox.com/developers/apps](https://www.dropbox.com/developers/apps)
-   → Create app → **Scoped access** → **App folder** (uploads land in
-   `Apps/<your-app-name>/`, isolated from the rest of your Dropbox) → name it
-   (e.g. "MCHS Photo Drop").
-2. **Permissions tab**: check `files.content.write` → Submit.
-3. **Settings tab**: note the **App key** and **App secret**.
-4. **Mint a refresh token** (signed into the yearbook's Dropbox account):
-   - Open (with YOUR_APP_KEY substituted):
-     `https://www.dropbox.com/oauth2/authorize?client_id=YOUR_APP_KEY&response_type=code&token_access_type=offline`
-   - Approve, copy the code shown, then:
-     ```bash
-     curl https://api.dropbox.com/oauth2/token \
-       -d code=THE_CODE -d grant_type=authorization_code \
-       -u YOUR_APP_KEY:YOUR_APP_SECRET
-     ```
-   - Copy the `refresh_token` from the response.
-5. **Store the secrets** (from this folder; each prompts for the value):
+1. **Create the bucket**: [console.wasabisys.com](https://console.wasabisys.com)
+   → Buckets → Create Bucket → name it (e.g. `mchs-photo-drop`), pick a region
+   (note it, e.g. `us-central-1`), leave versioning/logging off → Create.
+2. **Create access keys**: console → Access Keys → Create New Access Key
+   (root key is simplest; a sub-user policy-scoped to just this bucket is
+   better if you want least privilege). Save the **Access Key** and
+   **Secret Key** — the secret is shown only once.
+3. **Point the functions at the bucket**: edit [functions/.env](functions/.env)
+   and set `WASABI_BUCKET` and `WASABI_REGION` to match step 1.
+4. **Store the keys** (from this folder; each prompts for the value):
    ```bash
-   firebase functions:secrets:set DROPBOX_APP_KEY
-   firebase functions:secrets:set DROPBOX_APP_SECRET
-   firebase functions:secrets:set DROPBOX_REFRESH_TOKEN
+   firebase functions:secrets:set WASABI_ACCESS_KEY
+   firebase functions:secrets:set WASABI_SECRET_KEY
    ```
-6. Deploy: `firebase deploy --only functions,firestore`
+5. Deploy: `firebase deploy --only functions,firestore`
 
-Uploads are filed as `/YYYY-MM-DD/Name - caption - timestamp.jpg` and logged
-to the `photo_submissions` collection (admins see everyone's, users their own).
+Uploads are filed as `YYYY-MM-DD/Name - caption - timestamp.ext` in the
+bucket and logged to the `photo_submissions` collection (admins see
+everyone's, users their own). Per-file limit: 2 GB, enforced in the app and
+in `createUploadUrl`.
 
 ## Architecture notes
 

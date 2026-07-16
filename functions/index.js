@@ -14,7 +14,7 @@ const {
   onDocumentCreated,
   onDocumentUpdated,
 } = require("firebase-functions/v2/firestore");
-const { defineSecret } = require("firebase-functions/params");
+const { defineSecret, defineString } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
@@ -320,124 +320,150 @@ exports.deleteAccount = onCall(async (request) => {
   return { ok: true };
 });
 
-// ─── Photo Drop: upload to the school Dropbox ─────────────────────────────────
-// Any signed-in user with a profile can submit photos. The Dropbox credentials
-// live in Secret Manager (never in the app), uploads land in the Dropbox app
-// folder under /YYYY-MM-DD/, filenames carry the submitter's name, and every
-// upload is logged to photo_submissions so admins can see who sent what.
+// ─── Photo Drop: direct-to-Wasabi uploads via presigned URLs ─────────────────
+// Wasabi is S3-compatible, so the AWS SDK talks to it with a custom endpoint.
+// Files can be up to 2 GB, so they never pass through Cloud Functions
+// (32 MB request cap) — instead createUploadUrl mints a short-lived presigned
+// PUT URL (server controls the key/filename), the device uploads straight to
+// the bucket, and completeUpload verifies the object landed and finalizes the
+// photo_submissions log entry so admins can see who sent what.
 //
-// One-time setup (see README): create a scoped Dropbox app, mint a refresh
-// token, then `firebase functions:secrets:set` DROPBOX_APP_KEY,
-// DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN.
-const DROPBOX_APP_KEY = defineSecret("DROPBOX_APP_KEY");
-const DROPBOX_APP_SECRET = defineSecret("DROPBOX_APP_SECRET");
-const DROPBOX_REFRESH_TOKEN = defineSecret("DROPBOX_REFRESH_TOKEN");
+// One-time setup (see README): create the Wasabi bucket + access keys, then
+// `firebase functions:secrets:set` WASABI_ACCESS_KEY / WASABI_SECRET_KEY and
+// set WASABI_BUCKET / WASABI_REGION in functions/.env.
+const { S3Client, PutObjectCommand, HeadObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
-// Short-lived Dropbox access token, cached per function instance.
-let dropboxAccess = { token: null, expiresAt: 0 };
+const WASABI_ACCESS_KEY = defineSecret("WASABI_ACCESS_KEY");
+const WASABI_SECRET_KEY = defineSecret("WASABI_SECRET_KEY");
+const WASABI_BUCKET = defineString("WASABI_BUCKET");
+const WASABI_REGION = defineString("WASABI_REGION", { default: "us-east-1" });
 
-async function dropboxAccessToken() {
-  if (dropboxAccess.token && Date.now() < dropboxAccess.expiresAt - 60_000) {
-    return dropboxAccess.token;
-  }
-  const basic = Buffer.from(
-    `${DROPBOX_APP_KEY.value()}:${DROPBOX_APP_SECRET.value()}`
-  ).toString("base64");
-  const res = await fetch("https://api.dropbox.com/oauth2/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${basic}`,
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB per file
+
+function wasabiClient() {
+  return new S3Client({
+    region: WASABI_REGION.value(),
+    endpoint: `https://s3.${WASABI_REGION.value()}.wasabisys.com`,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: WASABI_ACCESS_KEY.value(),
+      secretAccessKey: WASABI_SECRET_KEY.value(),
     },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: DROPBOX_REFRESH_TOKEN.value(),
-    }),
   });
-  if (!res.ok) {
-    console.error("Dropbox token refresh failed:", res.status, await res.text());
-    throw new HttpsError("internal", "Dropbox authentication failed — check the Dropbox secrets.");
-  }
-  const json = await res.json();
-  dropboxAccess = {
-    token: json.access_token,
-    expiresAt: Date.now() + (json.expires_in || 14400) * 1000,
-  };
-  return dropboxAccess.token;
 }
 
-/** Strip characters Dropbox filenames can't take, collapse whitespace. */
+/** Strip characters object keys/filenames shouldn't carry, collapse whitespace. */
 function safeFileComponent(s, maxLength) {
   return (s || "")
-    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/[\\/:*?"<>|#%{}^\[\]`]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
 }
 
-exports.uploadPhotoToDropbox = onCall(
-  {
-    secrets: [DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN],
-    memory: "512MiB",
-    timeoutSeconds: 120,
-  },
+const EXT_BY_CONTENT_TYPE = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/heic": "heic",
+  "image/gif": "gif",
+  "video/quicktime": "mov",
+  "video/mp4": "mp4",
+  "video/x-m4v": "m4v",
+};
+
+exports.createUploadUrl = onCall(
+  { secrets: [WASABI_ACCESS_KEY, WASABI_SECRET_KEY] },
   async (request) => {
     const uid = requireAuth(request);
     const profile = await resolveProfile(uid);
     if (!profile) throw new HttpsError("failed-precondition", "User profile not found.");
 
-    const { imageBase64, caption = "", contentType = "image/jpeg" } = request.data || {};
-    if (!imageBase64 || typeof imageBase64 !== "string") {
-      throw new HttpsError("invalid-argument", "imageBase64 is required.");
+    const {
+      caption = "",
+      contentType = "application/octet-stream",
+      fileExtension = "",
+      fileSize = 0,
+    } = request.data || {};
+
+    if (!Number.isFinite(fileSize) || fileSize <= 0) {
+      throw new HttpsError("invalid-argument", "fileSize is required.");
     }
-    // ~20 MB binary ceiling (callable requests cap at 32 MB with base64 overhead).
-    if (imageBase64.length > 28_000_000) {
-      throw new HttpsError("invalid-argument", "Photo is too large — please try a smaller one.");
+    if (fileSize > MAX_UPLOAD_BYTES) {
+      throw new HttpsError("invalid-argument", "Files must be 2 GB or smaller.");
     }
 
-    let buffer;
-    try {
-      buffer = Buffer.from(imageBase64, "base64");
-    } catch {
-      throw new HttpsError("invalid-argument", "Invalid image data.");
-    }
+    const cleanExt = String(fileExtension).replace(/^\./, "").toLowerCase();
+    const ext = /^[a-z0-9]{1,8}$/.test(cleanExt)
+      ? cleanExt
+      : EXT_BY_CONTENT_TYPE[contentType] || "bin";
 
-    // /2026-07-16/Jon Podner - homecoming parade - 1721145600000.jpg
+    // Same naming structure as before: 2026-07-16/Jon Podner - homecoming - 1721145600000.jpg
     const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
     const who = safeFileComponent(profile.displayName, 40) || "Unknown";
     const what = safeFileComponent(caption, 40);
-    const ext = contentType === "image/png" ? "png" : contentType === "image/heic" ? "heic" : "jpg";
-    const path = `/${day}/${who}${what ? ` - ${what}` : ""} - ${Date.now()}.${ext}`;
+    const key = `${day}/${who}${what ? ` - ${what}` : ""} - ${Date.now()}.${ext}`;
 
-    const token = await dropboxAccessToken();
-    const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/octet-stream",
-        "Dropbox-API-Arg": JSON.stringify({ path, mode: "add", autorename: true, mute: true }),
-      },
-      body: buffer,
-    });
-    if (!res.ok) {
-      console.error("Dropbox upload failed:", res.status, await res.text());
-      throw new HttpsError("internal", "Upload to Dropbox failed. Please try again.");
-    }
-    const meta = await res.json();
+    const uploadUrl = await getSignedUrl(
+      wasabiClient(),
+      new PutObjectCommand({
+        Bucket: WASABI_BUCKET.value(),
+        Key: key,
+        ContentType: contentType,
+      }),
+      { expiresIn: 6 * 60 * 60 } // slow connections + big files
+    );
 
-    // Submission log: who sent what, when, and where it landed.
-    await db.collection("photo_submissions").add({
+    const ref = await db.collection("photo_submissions").add({
       uid,
       name: profile.displayName,
       email: profile.email || "",
       caption: caption.slice(0, 200),
-      fileName: meta.name,
-      dropboxPath: meta.path_display,
-      size: meta.size || buffer.length,
+      fileName: key.split("/").pop(),
+      storageKey: key,
+      size: fileSize,
+      status: "pending",
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    return { ok: true, fileName: meta.name };
+    return { uploadUrl, submissionId: ref.id, contentType };
+  }
+);
+
+exports.completeUpload = onCall(
+  { secrets: [WASABI_ACCESS_KEY, WASABI_SECRET_KEY] },
+  async (request) => {
+    const uid = requireAuth(request);
+    const { submissionId } = request.data || {};
+    if (!submissionId) throw new HttpsError("invalid-argument", "submissionId is required.");
+
+    const ref = db.collection("photo_submissions").doc(submissionId);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Submission not found.");
+    if (snap.data().uid !== uid) {
+      throw new HttpsError("permission-denied", "Not your submission.");
+    }
+
+    // Confirm the object actually landed in the bucket.
+    let head;
+    try {
+      head = await wasabiClient().send(
+        new HeadObjectCommand({
+          Bucket: WASABI_BUCKET.value(),
+          Key: snap.data().storageKey,
+        })
+      );
+    } catch (err) {
+      console.error("completeUpload: object not found", snap.data().storageKey, err.name);
+      throw new HttpsError("failed-precondition", "The upload didn't finish — please try again.");
+    }
+
+    await ref.update({
+      status: "uploaded",
+      size: head.ContentLength || snap.data().size,
+      uploadedAt: FieldValue.serverTimestamp(),
+    });
+    return { ok: true };
   }
 );
 

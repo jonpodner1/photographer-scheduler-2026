@@ -128,8 +128,8 @@ service cloud.firestore {
     }
 
     // ═══ Photo Drop submissions (shared by both apps) ═══════════════════════
-    // Created only by the uploadPhotoToDropbox Cloud Function. Users see their
-    // own submissions; admins see everyone's.
+    // Created only by the createUploadUrl / completeUpload Cloud Functions.
+    // Users see their own submissions; admins see everyone's.
     match /photo_submissions/{submissionId} {
       allow read: if isAdmin() ||
         (isAuthenticated() && resource.data.uid == request.auth.uid);
