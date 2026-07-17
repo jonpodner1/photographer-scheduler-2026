@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { ArrowLeft } from 'lucide-react'
 import { COL, db } from '../../lib/firebase'
-import { userFromDoc, type AppUser } from '../../types/models'
+import { appUserFromDoc, userFromDoc, type AppUser } from '../../types/models'
 import PhotographerDashboard from '../../components/PhotographerDashboard'
 import Spinner from '../../components/Spinner'
 import { Badge } from '@/components/ui/badge'
@@ -16,9 +16,23 @@ export default function AdminPhotographerPage() {
 
   useEffect(() => {
     if (!uid) return
-    return onSnapshot(doc(db, COL.users, uid), (snap) =>
-      setUser(snap.exists() ? userFromDoc(snap) : null),
-    )
+    // Web account first; fall back to the MCHS iOS app's users collection.
+    let unsubApp: (() => void) | undefined
+    const unsubWeb = onSnapshot(doc(db, COL.users, uid), (snap) => {
+      if (snap.exists()) {
+        setUser(userFromDoc(snap))
+        return
+      }
+      unsubApp ??= onSnapshot(
+        doc(db, 'users', uid),
+        (appSnap) => setUser(appSnap.exists() ? appUserFromDoc(appSnap) : null),
+        () => setUser(null),
+      )
+    })
+    return () => {
+      unsubWeb()
+      unsubApp?.()
+    }
   }, [uid])
 
   if (user === undefined) {

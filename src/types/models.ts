@@ -11,6 +11,13 @@ export type UserRole = 'admin' | 'photographer'
  */
 export type UserStatus = 'pending' | 'active' | 'denied'
 
+/**
+ * Where the account lives: 'web' = scheduler_users (this app's signups),
+ * 'app' = the MCHS iOS app's users collection (isPhotographer/isAdmin flags,
+ * photographerRequested for pending requests).
+ */
+export type UserSource = 'web' | 'app'
+
 export interface AppUser {
   uid: string
   email: string
@@ -22,6 +29,7 @@ export interface AppUser {
   /** Admin-set score override (+/-), added to the real signup count for ranking. */
   scoreAdjustment: number
   status: UserStatus
+  source: UserSource
 }
 
 export function userFromDoc(snap: DocumentSnapshot): AppUser {
@@ -36,6 +44,31 @@ export function userFromDoc(snap: DocumentSnapshot): AppUser {
     fcmToken: d.fcmToken ?? null,
     scoreAdjustment: typeof d.scoreAdjustment === 'number' ? d.scoreAdjustment : 0,
     status: d.status === 'pending' ? 'pending' : d.status === 'denied' ? 'denied' : 'active',
+    source: 'web',
+  }
+}
+
+/**
+ * Maps an MCHS iOS app users/{uid} doc into the same shape. Status mapping:
+ * photographer/admin capability → active; photographerRequested → pending;
+ * neither → denied (callers filter those out — plain app users aren't part of
+ * the scheduler).
+ */
+export function appUserFromDoc(snap: DocumentSnapshot): AppUser {
+  const d = snap.data() ?? {}
+  const name = `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim()
+  const capable = d.isPhotographer === true || d.isAdmin === true
+  return {
+    uid: snap.id,
+    email: d.email ?? '',
+    displayName: name || d.email || 'MCHS app user',
+    role: d.isAdmin === true ? 'admin' : 'photographer',
+    phone: d.phone ?? null,
+    photoUrl: null,
+    fcmToken: d.fcmToken ?? null,
+    scoreAdjustment: 0,
+    status: capable ? 'active' : d.photographerRequested === true ? 'pending' : 'denied',
+    source: 'app',
   }
 }
 

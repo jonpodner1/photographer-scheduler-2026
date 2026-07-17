@@ -1,7 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { deleteUser, setUserStatus, updateUserRole } from '../../services/users'
+import {
+  approveAppPhotographer,
+  deleteUser,
+  denyAppPhotographer,
+  listenAppUsers,
+  revokeAppPhotographer,
+  setUserStatus,
+  updateUserRole,
+} from '../../services/users'
 import { usePhotographerStats } from '../../hooks/usePhotographerStats'
 import Modal from '../../components/Modal'
 import Spinner from '../../components/Spinner'
@@ -22,47 +30,45 @@ import {
 export default function AdminUsersPage() {
   const { profile } = useAuth()
   const stats = usePhotographerStats()
+  const [appUsers, setAppUsers] = useState<AppUser[] | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  if (!stats || !profile) {
+  // MCHS-app photographers/requests — admin-only listener.
+  useEffect(() => listenAppUsers(setAppUsers), [])
+
+  const run = (action: () => Promise<void>) => async () => {
+    setError(null)
+    try {
+      await action()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // Web accounts win when the same uid exists in both collections.
+  const merged = useMemo(() => {
+    if (!stats || !appUsers) return null
+    const webUids = new Set(stats.users.map((u) => u.uid))
+    return {
+      pending: [
+        ...stats.users.filter((u) => u.status === 'pending'),
+        ...appUsers.filter((u) => u.status === 'pending' && !webUids.has(u.uid)),
+      ],
+      rows: [
+        ...stats.users.filter((u) => u.status !== 'pending'),
+        ...appUsers.filter((u) => u.status === 'active' && !webUids.has(u.uid)),
+      ],
+    }
+  }, [stats, appUsers])
+
+  if (!merged || !stats || !profile) {
     return (
       <div className="flex justify-center py-16">
         <Spinner />
       </div>
     )
   }
-
-  const toggleRole = async (u: AppUser) => {
-    setError(null)
-    try {
-      await updateUserRole(u.uid, u.role === 'admin' ? 'photographer' : 'admin')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    setError(null)
-    try {
-      await deleteUser(deleteTarget.uid)
-      setDeleteTarget(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  const changeStatus = async (u: AppUser, status: 'active' | 'denied') => {
-    setError(null)
-    try {
-      await setUserStatus(u.uid, status)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  const pending = stats.users.filter((u) => u.status === 'pending')
 
   return (
     <div>
@@ -74,26 +80,36 @@ export default function AdminUsersPage() {
         </Alert>
       )}
 
-      {pending.length > 0 && (
+      {merged.pending.length > 0 && (
         <Card className="mb-6 gap-3 border-amber-300 bg-amber-50/50 p-4">
           <h3 className="text-sm font-semibold text-amber-900">
-            Pending approval ({pending.length})
+            Pending approval ({merged.pending.length})
           </h3>
           <ul className="divide-y divide-amber-200/60">
-            {pending.map((u) => (
+            {merged.pending.map((u) => (
               <li key={u.uid} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{u.displayName}</p>
+                  <p className="truncate text-sm font-medium">
+                    {u.displayName}
+                    {u.source === 'app' && <SourceBadge />}
+                  </p>
                   <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => changeStatus(u, 'active')}>
+                  <Button
+                    size="sm"
+                    onClick={run(() =>
+                      u.source === 'app' ? approveAppPhotographer(u.uid) : setUserStatus(u.uid, 'active'),
+                    )}
+                  >
                     Approve
                   </Button>
                   <Button
                     size="sm"
                     variant="destructive"
-                    onClick={() => changeStatus(u, 'denied')}
+                    onClick={run(() =>
+                      u.source === 'app' ? denyAppPhotographer(u.uid) : setUserStatus(u.uid, 'denied'),
+                    )}
                   >
                     Deny
                   </Button>
@@ -117,9 +133,7 @@ export default function AdminUsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {stats.users
-              .filter((u) => u.status !== 'pending')
-              .map((u) => {
+            {merged.rows.map((u) => {
               const isSelf = u.uid === profile.uid
               const s = stats.byUid.get(u.uid)
               return (
@@ -131,6 +145,7 @@ export default function AdminUsersPage() {
                     {isSelf && (
                       <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>
                     )}
+                    {u.source === 'app' && <SourceBadge />}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{u.email}</TableCell>
                   <TableCell>
@@ -156,33 +171,50 @@ export default function AdminUsersPage() {
                         {s.adjustment !== 0 && <span className="text-xs text-muted-foreground">*</span>}
                       </span>
                     ) : (
-                      '—'
+                      '0'
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {u.status === 'denied' && (
-                      <Button variant="link" size="xs" onClick={() => changeStatus(u, 'active')}>
-                        Approve
-                      </Button>
+                    {u.source === 'app' ? (
+                      u.role === 'photographer' && (
+                        <Button
+                          variant="link"
+                          size="xs"
+                          className="text-destructive"
+                          onClick={run(() => revokeAppPhotographer(u.uid))}
+                        >
+                          Revoke Photographer
+                        </Button>
+                      )
+                    ) : (
+                      <>
+                        {u.status === 'denied' && (
+                          <Button variant="link" size="xs" onClick={run(() => setUserStatus(u.uid, 'active'))}>
+                            Approve
+                          </Button>
+                        )}
+                        <Button
+                          variant="link"
+                          size="xs"
+                          onClick={run(() =>
+                            updateUserRole(u.uid, u.role === 'admin' ? 'photographer' : 'admin'),
+                          )}
+                          disabled={isSelf}
+                          title={isSelf ? "You can't change your own role" : undefined}
+                        >
+                          {u.role === 'admin' ? 'Make Photographer' : 'Make Admin'}
+                        </Button>
+                        <Button
+                          variant="link"
+                          size="xs"
+                          className="text-destructive"
+                          onClick={() => setDeleteTarget(u)}
+                          disabled={isSelf}
+                        >
+                          Delete
+                        </Button>
+                      </>
                     )}
-                    <Button
-                      variant="link"
-                      size="xs"
-                      onClick={() => toggleRole(u)}
-                      disabled={isSelf}
-                      title={isSelf ? "You can't change your own role" : undefined}
-                    >
-                      {u.role === 'admin' ? 'Make Photographer' : 'Make Admin'}
-                    </Button>
-                    <Button
-                      variant="link"
-                      size="xs"
-                      className="text-destructive"
-                      onClick={() => setDeleteTarget(u)}
-                      disabled={isSelf}
-                    >
-                      Delete
-                    </Button>
                   </TableCell>
                 </TableRow>
               )
@@ -193,6 +225,8 @@ export default function AdminUsersPage() {
 
       <p className="mt-2 text-xs text-muted-foreground">
         Click a name to see that photographer's dashboard. * = includes an admin score override.
+        "MCHS app" accounts signed up in the iOS app — manage their photographer access here or
+        in the app's Manage Access screen.
       </p>
 
       {deleteTarget && (
@@ -206,12 +240,26 @@ export default function AdminUsersPage() {
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
+            <Button
+              variant="destructive"
+              onClick={run(async () => {
+                await deleteUser(deleteTarget.uid)
+                setDeleteTarget(null)
+              })}
+            >
               Delete User
             </Button>
           </div>
         </Modal>
       )}
     </div>
+  )
+}
+
+function SourceBadge() {
+  return (
+    <Badge variant="outline" className="ml-1.5 border-transparent bg-blue-100 text-blue-700">
+      MCHS app
+    </Badge>
   )
 }

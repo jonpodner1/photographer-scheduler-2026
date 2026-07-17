@@ -8,13 +8,45 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { COL, db } from '../lib/firebase'
-import { userFromDoc, type AppUser, type UserRole } from '../types/models'
+import { appUserFromDoc, userFromDoc, type AppUser, type UserRole } from '../types/models'
+
+// The MCHS iOS app's own user collection (photographer capability flags).
+const APP_USERS = 'users'
 
 export function listenUsers(cb: (users: AppUser[]) => void): () => void {
   const q = query(collection(db, COL.users), orderBy('displayName'))
   return onSnapshot(q, (snap) => cb(snap.docs.map(userFromDoc)), (err) =>
     console.error('users listener error', err),
   )
+}
+
+/**
+ * MCHS iOS app users that matter to the scheduler: approved photographers,
+ * app admins, and pending photographer requests. Plain app accounts (families
+ * following scores) are filtered out. Admin-only — rules deny the collection
+ * read to everyone else.
+ */
+export function listenAppUsers(cb: (users: AppUser[]) => void): () => void {
+  return onSnapshot(
+    collection(db, APP_USERS),
+    (snap) => cb(snap.docs.map(appUserFromDoc).filter((u) => u.status !== 'denied')),
+    (err) => console.error('app users listener error', err),
+  )
+}
+
+/** Approve an MCHS-app photographer request: grant the capability, clear the request. */
+export async function approveAppPhotographer(uid: string): Promise<void> {
+  await updateDoc(doc(db, APP_USERS, uid), { isPhotographer: true, photographerRequested: false })
+}
+
+/** Deny an MCHS-app photographer request: clear the request, grant nothing. */
+export async function denyAppPhotographer(uid: string): Promise<void> {
+  await updateDoc(doc(db, APP_USERS, uid), { photographerRequested: false })
+}
+
+/** Revoke an MCHS-app photographer's capability. */
+export async function revokeAppPhotographer(uid: string): Promise<void> {
+  await updateDoc(doc(db, APP_USERS, uid), { isPhotographer: false })
 }
 
 export async function updateUserRole(uid: string, role: UserRole): Promise<void> {

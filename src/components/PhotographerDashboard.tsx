@@ -31,8 +31,16 @@ export default function PhotographerDashboard({ photographer, adminControls }: P
     )
   }
 
-  const s = stats.byUid.get(photographer.uid)
-  if (!s) return <p className="text-sm text-muted-foreground">No stats for this user yet.</p>
+  // MCHS-app users with no signups yet aren't in the stats map — show zeros.
+  const s = stats.byUid.get(photographer.uid) ?? {
+    user: photographer,
+    upcoming: [],
+    past: [],
+    eventCount: 0,
+    adjustment: 0,
+    score: 0,
+    rank: undefined,
+  }
 
   const adjust = async (delta: number) => {
     setBusy(true)
@@ -64,8 +72,9 @@ export default function PhotographerDashboard({ photographer, adminControls }: P
         <StatTile label="Completed" value={String(s.past.length)} tone="text-green-600" />
       </div>
 
-      {/* Admin score override */}
-      {adminControls && (
+      {/* Admin score override — web accounts only (the adjustment lives on
+          the scheduler_users doc, which MCHS-app accounts don't have) */}
+      {adminControls && photographer.source !== 'app' && (
         <Card className="flex-row items-center gap-4 p-4">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Score override</p>

@@ -51,7 +51,9 @@ service cloud.firestore {
 
     match /users/{userId} {
       // Own doc, or any doc if admin (admin needs to list pending requests).
-      allow read: if request.auth != null && (request.auth.uid == userId || isAppAdmin());
+      // isAdmin() (not just isAppAdmin) so scheduler web admins can review
+      // photographer requests made from the MCHS app.
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
 
       // Self-signup: own doc only, capability flags MUST be false.
       allow create: if request.auth != null
@@ -60,11 +62,12 @@ service cloud.firestore {
         && request.resource.data.isScorekeeper == false
         && request.resource.data.isPhotographer == false;
 
-      // Only an admin may update (approve/deny/revoke). Even an admin cannot
-      // change the isAdmin flag from the app -- that stays a console action.
+      // Only an admin may update (approve/deny/revoke) — either app admins or
+      // scheduler web admins. Even an admin cannot change the isAdmin flag
+      // from a client -- that stays a console action.
       // Exception: a user may update their own device push-token fields
       // (FCM token + Live Activity tokens) and nothing else.
-      allow update: if (isAppAdmin()
+      allow update: if (isAdmin()
           && request.resource.data.isAdmin == resource.data.isAdmin)
         || (request.auth != null && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(

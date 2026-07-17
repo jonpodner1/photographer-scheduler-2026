@@ -13,6 +13,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const {
   onDocumentCreated,
   onDocumentUpdated,
+  onDocumentWritten,
 } = require("firebase-functions/v2/firestore");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
@@ -597,6 +598,46 @@ exports.onUserUpdated = onDocumentUpdated(`${USERS}/{uid}`, async (event) => {
       eventName: "",
     },
   ]);
+});
+
+// MCHS app photographer requests: when photographerRequested flips on (at
+// signup or later), tell every admin there's a request to review — mirrors
+// the web signup notification. Approval flips isPhotographer, and that user
+// gets a welcome notification.
+exports.onAppUserWritten = onDocumentWritten(`${APP_USERS}/{uid}`, async (event) => {
+  const before = event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  if (!after) return;
+
+  const name =
+    `${after.firstName || ""} ${after.lastName || ""}`.trim() || after.email || "Someone";
+
+  if (after.photographerRequested === true && before?.photographerRequested !== true) {
+    const admins = await getAdmins();
+    await writeNotifications(
+      admins.map((a) => ({
+        userId: a.uid,
+        type: "accountPending",
+        title: "Photographer Request",
+        body: `${name} requested photographer access in the MCHS app`,
+        eventId: "",
+        eventName: "",
+      }))
+    );
+  }
+
+  if (after.isPhotographer === true && before?.isPhotographer !== true) {
+    await writeNotifications([
+      {
+        userId: event.params.uid,
+        type: "accountApproved",
+        title: "Photographer Access Approved",
+        body: "You're in! You can now sign up for events from the Photographer menu.",
+        eventId: "",
+        eventName: "",
+      },
+    ]);
+  }
 });
 
 // ─── Cancellation fan-out ─────────────────────────────────────────────────────

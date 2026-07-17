@@ -31,6 +31,11 @@ export interface StatsData {
  * Live stats for every user: which events they're on, their score
  * (signups + admin adjustment), and their rank among photographers.
  * Returns null until both listeners have delivered.
+ *
+ * MCHS-app photographers don't have scheduler_users docs, and their users
+ * collection is admin-only — so for ranking purposes they're derived from the
+ * event slots themselves (uid + display name live on every slot). That keeps
+ * ranks identical for every viewer without exposing the app's user list.
  */
 export function usePhotographerStats(): StatsData | null {
   const [events, setEvents] = useState<ScheduleEvent[] | null>(null)
@@ -43,22 +48,43 @@ export function usePhotographerStats(): StatsData | null {
     if (!events || !users) return null
     const today = startOfDay(new Date()).getTime()
 
-    const byUid = new Map<string, PhotographerStats>()
-    for (const user of users) {
+    const statsFor = (user: AppUser): PhotographerStats => {
       const mine = events.filter(
         (e) => e.status !== 'cancelled' && e.photographerIds.includes(user.uid),
       )
       const upcoming = mine.filter((e) => e.date.getTime() >= today)
       const past = mine.filter((e) => e.date.getTime() < today).reverse()
       const adjustment = user.scoreAdjustment ?? 0
-      byUid.set(user.uid, {
+      return {
         user,
         upcoming,
         past,
         eventCount: mine.length,
         adjustment,
         score: mine.length + adjustment,
-      })
+      }
+    }
+
+    const byUid = new Map<string, PhotographerStats>()
+    for (const user of users) byUid.set(user.uid, statsFor(user))
+
+    // MCHS-app photographers appear only via their slots: synthesize entries.
+    for (const event of events) {
+      for (const slot of event.slots) {
+        if (byUid.has(slot.photographerId)) continue
+        byUid.set(
+          slot.photographerId,
+          statsFor({
+            uid: slot.photographerId,
+            email: '',
+            displayName: slot.photographerName,
+            role: 'photographer',
+            scoreAdjustment: 0,
+            status: 'active',
+            source: 'app',
+          }),
+        )
+      }
     }
 
     // Rank approved photographers by score (competition ranking: ties share a rank).
