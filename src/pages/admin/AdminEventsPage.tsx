@@ -8,7 +8,7 @@ import {
   listenUpcomingEvents,
 } from '../../services/events'
 import { assignPhotographer, withdrawFromEvent } from '../../services/callables'
-import { listenUsers } from '../../services/users'
+import { listenAppUsers, listenUsers } from '../../services/users'
 import { importFromCsv, type ImportResult } from '../../services/csv'
 import EventCard from '../../components/EventCard'
 import Modal from '../../components/Modal'
@@ -29,6 +29,7 @@ export default function AdminEventsPage() {
   const [upcoming, setUpcoming] = useState<ScheduleEvent[] | null>(null)
   const [past, setPast] = useState<ScheduleEvent[] | null>(null)
   const [users, setUsers] = useState<AppUser[]>([])
+  const [appUsers, setAppUsers] = useState<AppUser[]>([])
 
   const [assignTarget, setAssignTarget] = useState<ScheduleEvent | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
@@ -41,9 +42,24 @@ export default function AdminEventsPage() {
   useEffect(() => listenUpcomingEvents(setUpcoming), [])
   useEffect(() => (tab === 'past' ? listenPastEvents(setPast) : undefined), [tab])
   useEffect(() => listenUsers(setUsers), [])
+  useEffect(() => listenAppUsers(setAppUsers), [])
 
   const events = tab === 'upcoming' ? upcoming : past
-  const photographers = useMemo(() => users.filter((u) => u.role === 'photographer'), [users])
+
+  // Assignable photographers come from BOTH pools: approved web signups
+  // (scheduler_users) and MCHS-app users with the photographer capability.
+  // Deduped by uid, web account wins.
+  const photographers = useMemo(() => {
+    const webPhotographers = users.filter(
+      (u) => u.role === 'photographer' && u.status === 'active',
+    )
+    const webUids = new Set(users.map((u) => u.uid))
+    const appPhotographers = appUsers.filter(
+      (u) => u.role === 'photographer' && u.status === 'active' && !webUids.has(u.uid),
+    )
+    return [...webPhotographers, ...appPhotographers]
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }, [users, appUsers])
 
   const runConfirm = async () => {
     if (!confirmAction) return
@@ -252,7 +268,11 @@ function AssignModal({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {candidates.length === 0 ? (
+      {photographers.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No approved photographers yet — approve accounts in the Users tab first.
+        </p>
+      ) : candidates.length === 0 ? (
         <p className="text-sm text-muted-foreground">Every photographer is already on this event.</p>
       ) : (
         <ul className="max-h-72 divide-y divide-border overflow-y-auto">
