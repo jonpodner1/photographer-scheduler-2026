@@ -16,7 +16,7 @@ import {
 import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import { FirebaseError } from 'firebase/app'
 import { COL, auth, db } from '../lib/firebase'
-import { userFromDoc, type AppUser } from '../types/models'
+import { appUserFromDoc, userFromDoc, type AppUser } from '../types/models'
 
 interface AuthState {
   /** Firebase auth user (null when logged out). */
@@ -53,10 +53,17 @@ function friendlyError(code: string): string {
   }
 }
 
+// undefined = still determining, null = confirmed missing, AppUser = loaded
+type ProfileState = AppUser | null | undefined
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null)
-  // undefined = still determining, null = confirmed missing, AppUser = loaded
-  const [profile, setProfile] = useState<AppUser | null | undefined>(undefined)
+  /** scheduler_users/{uid} — accounts created by signing up on this website. */
+  const [webProfile, setWebProfile] = useState<ProfileState>(undefined)
+  /** users/{uid} — accounts created in the MCHS iOS app (isPhotographer/isAdmin). */
+  const [appProfile, setAppProfile] = useState<ProfileState>(undefined)
+  /** True while re-checking a scheduler_users doc the watch stream reported missing. */
+  const [confirming, setConfirming] = useState(false)
   const [authReady, setAuthReady] = useState(false)
   // Bumped to force a fresh listener when a stale watch missed the doc creation.
   const [listenNonce, setListenNonce] = useState(0)
@@ -66,12 +73,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return onAuthStateChanged(auth, (user) => {
       setFirebaseUser(user)
       setAuthReady(true)
-      setProfile(user ? undefined : null)
+      setWebProfile(user ? undefined : null)
+      setAppProfile(user ? undefined : null)
+      setConfirming(false)
       resubscribesRef.current = 0
     })
   }, [])
 
-  // Live-subscribe to the profile doc so role changes take effect immediately.
+  // Live-subscribe to the scheduler profile doc so role changes take effect immediately.
   useEffect(() => {
     if (!firebaseUser) return
     const ref = doc(db, COL.users, firebaseUser.uid)
@@ -79,23 +88,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ref,
       (snap) => {
         if (snap.exists()) {
-          setProfile(userFromDoc(snap))
+          setWebProfile(userFromDoc(snap))
+          setConfirming(false)
           return
         }
         // Our own signup write is still in flight — keep waiting.
         if (snap.metadata.hasPendingWrites) return
         // The listener says the doc is gone, but a doc created moments ago
-        // (fresh signup) can race the watch stream. Confirm with direct
-        // reads (retrying briefly) before treating the profile as missing,
-        // then resubscribe so live updates resume from a watch that
-        // includes the doc.
+        // (fresh signup) can race the watch stream. Report it missing now so an
+        // MCHS-app account can be used immediately, but keep confirming with
+        // direct reads (retrying briefly) — `confirming` holds the spinner up
+        // for users who have no app account to fall back on, so a fresh signup
+        // never flashes the "profile not found" screen. On success, resubscribe
+        // so live updates resume from a watch that includes the doc.
+        setWebProfile(null)
+        setConfirming(true)
         const confirmMissing = async () => {
           for (let attempt = 0; attempt < 4; attempt++) {
             if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * attempt))
             try {
               const confirmed = await getDoc(ref)
               if (confirmed.exists()) {
-                setProfile(userFromDoc(confirmed))
+                setWebProfile(userFromDoc(confirmed))
+                setConfirming(false)
                 if (resubscribesRef.current < 3) {
                   resubscribesRef.current += 1
                   setListenNonce((n) => n + 1)
@@ -106,17 +121,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.error('profile fallback read failed', err)
             }
           }
-          setProfile(null)
+          setConfirming(false)
         }
         void confirmMissing()
       },
       (err) => {
         console.error('profile listener error', err)
-        setProfile(null)
+        setWebProfile(null)
+        setConfirming(false)
       },
     )
     return unsub
   }, [firebaseUser, listenNonce])
+
+  // Photographers who signed up in the MCHS iOS app have no scheduler_users doc
+  // — their capability flags live on users/{uid}. The rules let a user read
+  // their own doc there, and the callables/rules already treat both collections
+  // as one identity, so the web app resolves from either. Without this, every
+  // app-signup photographer authenticates fine and then bounces back to the
+  // login screen with "profile not found".
+  useEffect(() => {
+    if (!firebaseUser) return
+    const unsub = onSnapshot(
+      doc(db, COL.appUsers, firebaseUser.uid),
+      (snap) => setAppProfile(snap.exists() ? appUserFromDoc(snap) : null),
+      (err) => {
+        console.error('app profile listener error', err)
+        setAppProfile(null)
+      },
+    )
+    return unsub
+  }, [firebaseUser])
+
+  // A scheduler_users doc wins when it exists (it's this app's own record);
+  // otherwise fall back to the MCHS app account. Mirrors normalizeProfile() in
+  // functions/index.js so the client and server agree on who someone is.
+  const profile: ProfileState = webProfile ?? appProfile
+
+  const signedIn = firebaseUser !== null
+  const loading =
+    !authReady ||
+    (signedIn && webProfile === undefined) ||
+    (signedIn && appProfile === undefined) ||
+    // Still double-checking a missing scheduler doc, with no app account to
+    // fall back on — keep the spinner up instead of flashing "profile not found".
+    (signedIn && confirming && webProfile === null && appProfile === null)
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -153,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     firebaseUser,
     profile: profile ?? null,
     isAdmin: profile?.role === 'admin',
-    loading: !authReady || (firebaseUser !== null && profile === undefined),
+    loading,
     signIn,
     signUp,
     signOut,

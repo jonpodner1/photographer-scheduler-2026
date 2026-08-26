@@ -11,7 +11,7 @@ import { COL, db } from '../lib/firebase'
 import { appUserFromDoc, userFromDoc, type AppUser, type UserRole } from '../types/models'
 
 // The MCHS iOS app's own user collection (photographer capability flags).
-const APP_USERS = 'users'
+const APP_USERS = COL.appUsers
 
 export function listenUsers(cb: (users: AppUser[]) => void): () => void {
   const q = query(collection(db, COL.users), orderBy('displayName'))

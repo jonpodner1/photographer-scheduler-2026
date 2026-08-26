@@ -31,6 +31,9 @@ if (import.meta.env.VITE_USE_EMULATORS === 'true') {
 // the existing iOS app without colliding with its data.
 export const COL = {
   users: 'scheduler_users',
+  // The MCHS iOS app's own user collection. Photographers who signed up in that
+  // app have no scheduler_users doc — their identity/capability lives here.
+  appUsers: 'users',
   events: 'scheduler_events',
   notifications: 'scheduler_notifications',
   settings: 'scheduler_settings',
