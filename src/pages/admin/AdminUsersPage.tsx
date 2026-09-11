@@ -8,12 +8,12 @@ import {
   listenAppUsers,
   revokeAppPhotographer,
   setUserStatus,
-  updateUserRole,
 } from '../../services/users'
+import { setUserRole } from '../../services/callables'
 import { usePhotographerStats } from '../../hooks/usePhotographerStats'
 import Modal from '../../components/Modal'
 import Spinner from '../../components/Spinner'
-import type { AppUser } from '../../types/models'
+import { mergeProfiles, type AppUser } from '../../types/models'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,21 +46,33 @@ export default function AdminUsersPage() {
     }
   }
 
-  // Web accounts win when the same uid exists in both collections.
+  // One row per person. Someone in both pools is shown from their web record,
+  // merged with the app record by the same rule the functions use (admin in
+  // either pool counts as admin).
   const merged = useMemo(() => {
     if (!stats || !appUsers) return null
     const webUids = new Set(stats.users.map((u) => u.uid))
+    const appByUid = new Map(appUsers.map((u) => [u.uid, u]))
+    const webRows = stats.users.map((u) => mergeProfiles(u, appByUid.get(u.uid) ?? null) ?? u)
     return {
       pending: [
-        ...stats.users.filter((u) => u.status === 'pending'),
+        ...webRows.filter((u) => u.status === 'pending'),
         ...appUsers.filter((u) => u.status === 'pending' && !webUids.has(u.uid)),
       ],
       rows: [
-        ...stats.users.filter((u) => u.status !== 'pending'),
+        ...webRows.filter((u) => u.status !== 'pending'),
         ...appUsers.filter((u) => u.status === 'active' && !webUids.has(u.uid)),
       ],
     }
   }, [stats, appUsers])
+
+  // Promote / demote through the callable so BOTH user pools are updated;
+  // MCHS-app accounts keep admin on users/{uid}.isAdmin, which clients cannot
+  // write directly.
+  const toggleRole = async (u: AppUser) => {
+    const err = await setUserRole(u.uid, u.role === 'admin' ? 'photographer' : 'admin')
+    if (err) throw new Error(err)
+  }
 
   if (!merged || !stats || !profile) {
     return (
@@ -175,6 +187,20 @@ export default function AdminUsersPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
+                    {u.source !== 'app' && u.status === 'denied' && (
+                      <Button variant="link" size="xs" onClick={run(() => setUserStatus(u.uid, 'active'))}>
+                        Approve
+                      </Button>
+                    )}
+                    <Button
+                      variant="link"
+                      size="xs"
+                      onClick={run(() => toggleRole(u))}
+                      disabled={isSelf}
+                      title={isSelf ? "You can't change your own role" : undefined}
+                    >
+                      {u.role === 'admin' ? 'Make Photographer' : 'Make Admin'}
+                    </Button>
                     {u.source === 'app' ? (
                       u.role === 'photographer' && (
                         <Button
@@ -187,33 +213,15 @@ export default function AdminUsersPage() {
                         </Button>
                       )
                     ) : (
-                      <>
-                        {u.status === 'denied' && (
-                          <Button variant="link" size="xs" onClick={run(() => setUserStatus(u.uid, 'active'))}>
-                            Approve
-                          </Button>
-                        )}
-                        <Button
-                          variant="link"
-                          size="xs"
-                          onClick={run(() =>
-                            updateUserRole(u.uid, u.role === 'admin' ? 'photographer' : 'admin'),
-                          )}
-                          disabled={isSelf}
-                          title={isSelf ? "You can't change your own role" : undefined}
-                        >
-                          {u.role === 'admin' ? 'Make Photographer' : 'Make Admin'}
-                        </Button>
-                        <Button
-                          variant="link"
-                          size="xs"
-                          className="text-destructive"
-                          onClick={() => setDeleteTarget(u)}
-                          disabled={isSelf}
-                        >
-                          Delete
-                        </Button>
-                      </>
+                      <Button
+                        variant="link"
+                        size="xs"
+                        className="text-destructive"
+                        onClick={() => setDeleteTarget(u)}
+                        disabled={isSelf}
+                      >
+                        Delete
+                      </Button>
                     )}
                   </TableCell>
                 </TableRow>
@@ -226,7 +234,8 @@ export default function AdminUsersPage() {
       <p className="mt-2 text-xs text-muted-foreground">
         Click a name to see that photographer's dashboard. * = includes an admin score override.
         "MCHS app" accounts signed up in the iOS app — manage their photographer access here or
-        in the app's Manage Access screen.
+        in the app's Manage Access screen. Make Admin / Make Photographer works for both kinds of
+        account and applies in the app and on this site.
       </p>
 
       {deleteTarget && (

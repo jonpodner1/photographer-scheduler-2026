@@ -41,6 +41,10 @@ service cloud.firestore {
     }
 
     // Scheduler admin = web admin OR iOS-app admin (one admin team, two apps).
+    // This "admin in either pool" rule is mirrored by normalizeProfile() in
+    // functions/index.js, mergeProfiles() in the web app, and AuthService in
+    // the iOS app, so all four resolvers agree. The setUserRole callable
+    // writes both pools together to keep them in sync.
     function isAdmin() {
       return isSchedulerAdmin() || isAppAdmin();
     }
@@ -64,14 +68,21 @@ service cloud.firestore {
 
       // Only an admin may update (approve/deny/revoke) — either app admins or
       // scheduler web admins. Even an admin cannot change the isAdmin flag
-      // from a client -- that stays a console action.
+      // from a client -- promotion goes through the setUserRole Cloud
+      // Function (Admin SDK), which updates both user pools together.
       // Exception: a user may update their own device push-token fields
-      // (FCM token + Live Activity tokens) and nothing else.
+      // (FCM token + Live Activity tokens), and may raise their own
+      // photographerRequested flag (the website's "request access" button —
+      // the same request the app's Create Account toggle makes). They can
+      // only set it to true; admins clear it when they approve or deny.
       allow update: if (isAdmin()
           && request.resource.data.isAdmin == resource.data.isAdmin)
         || (request.auth != null && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-            ['fcmToken', 'fcmTokenUpdatedAt', 'pushToStartToken', 'pushTokenUpdatedAt']));
+            ['fcmToken', 'fcmTokenUpdatedAt', 'pushToStartToken', 'pushTokenUpdatedAt',
+             'photographerRequested'])
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['photographerRequested'])
+              || request.resource.data.photographerRequested == true));
 
       allow delete: if false;
 

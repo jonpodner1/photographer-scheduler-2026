@@ -97,6 +97,10 @@ export default function LoginPage({ missingProfile = false }: { missingProfile?:
             Create an account
           </Link>
         </p>
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Already have the MCHS app? Sign in here with the same email and password — you don't need
+          a second account.
+        </p>
       </div>
     </div>
   )

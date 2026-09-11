@@ -7,9 +7,11 @@ export type UserRole = 'admin' | 'photographer'
 /**
  * Account approval state. New signups start 'pending' and an admin approves or
  * denies them. Docs without the field (created before this feature, or by an
- * admin in the console) are treated as 'active'.
+ * admin in the console) are treated as 'active'. 'none' is an MCHS-app account
+ * that has never asked for photographer access (they can request it from the
+ * account-status page).
  */
-export type UserStatus = 'pending' | 'active' | 'denied'
+export type UserStatus = 'pending' | 'active' | 'denied' | 'none'
 
 /**
  * Where the account lives: 'web' = scheduler_users (this app's signups),
@@ -51,8 +53,8 @@ export function userFromDoc(snap: DocumentSnapshot): AppUser {
 /**
  * Maps an MCHS iOS app users/{uid} doc into the same shape. Status mapping:
  * photographer/admin capability → active; photographerRequested → pending;
- * neither → denied (callers filter those out — plain app users aren't part of
- * the scheduler).
+ * photographerDeniedAt set (an admin denied the request) → denied; otherwise
+ * 'none' — a plain app user who has never asked to be a photographer.
  */
 export function appUserFromDoc(snap: DocumentSnapshot): AppUser {
   const d = snap.data() ?? {}
@@ -67,8 +69,35 @@ export function appUserFromDoc(snap: DocumentSnapshot): AppUser {
     photoUrl: null,
     fcmToken: d.fcmToken ?? null,
     scoreAdjustment: 0,
-    status: capable ? 'active' : d.photographerRequested === true ? 'pending' : 'denied',
+    status: capable
+      ? 'active'
+      : d.photographerRequested === true
+        ? 'pending'
+        : d.photographerDeniedAt
+          ? 'denied'
+          : 'none',
     source: 'app',
+  }
+}
+
+/**
+ * ONE identity rule for a person who may exist in either pool — mirrors
+ * normalizeProfile() in functions/index.js and the rules' isAdmin():
+ *   - admin in EITHER pool → admin, always active;
+ *   - otherwise the scheduler doc (web) governs approval when it exists;
+ *   - otherwise the MCHS-app doc governs.
+ * Returns null when the person has no record in either pool.
+ */
+export function mergeProfiles(web: AppUser | null, app: AppUser | null): AppUser | null {
+  const base = web ?? app
+  if (!base) return null
+  const isAdmin = web?.role === 'admin' || app?.role === 'admin'
+  return {
+    ...base,
+    role: isAdmin ? 'admin' : 'photographer',
+    status: isAdmin ? 'active' : base.status,
+    phone: base.phone ?? app?.phone ?? null,
+    fcmToken: base.fcmToken ?? app?.fcmToken ?? null,
   }
 }
 

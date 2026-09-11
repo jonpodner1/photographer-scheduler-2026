@@ -74,11 +74,18 @@ Open http://localhost:5173.
 ## 8. Create the first account & make it admin
 
 1. In the app, click **Create an account** and sign up (this creates a
-   `scheduler_users` doc with role `photographer`).
+   `scheduler_users` doc with role `photographer` and status `pending`).
 2. Console → **Firestore Database → scheduler_users** → open your user's doc.
-3. Edit the `role` field: `photographer` → `admin`.
+3. Edit **both** fields: `role` → `admin` **and** `status` → `active`.
+   (With `status` still `pending` you'd be stuck on the "Waiting for approval"
+   page with nobody able to approve you.)
 4. Refresh the app — you'll land in the admin view. From now on you can
-   promote/demote anyone from the app's **Users** tab.
+   approve sign-ups and promote/demote anyone from the app's **Users** tab.
+   Make Admin works for accounts created in the MCHS iOS app too (it goes
+   through the `setUserRole` Cloud Function, which updates both user records).
+
+If you already have an admin account in the MCHS iOS app (`users/{uid}` with
+`isAdmin: true`), just sign in to the website with it — no web signup needed.
 
 ## 9. Production one-time steps
 

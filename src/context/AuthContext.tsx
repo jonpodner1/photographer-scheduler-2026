@@ -16,7 +16,7 @@ import {
 import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import { FirebaseError } from 'firebase/app'
 import { COL, auth, db } from '../lib/firebase'
-import { appUserFromDoc, userFromDoc, type AppUser } from '../types/models'
+import { appUserFromDoc, mergeProfiles, userFromDoc, type AppUser } from '../types/models'
 
 interface AuthState {
   /** Firebase auth user (null when logged out). */
@@ -153,10 +153,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub
   }, [firebaseUser])
 
-  // A scheduler_users doc wins when it exists (it's this app's own record);
-  // otherwise fall back to the MCHS app account. Mirrors normalizeProfile() in
-  // functions/index.js so the client and server agree on who someone is.
-  const profile: ProfileState = webProfile ?? appProfile
+  // Identity comes from BOTH pools (mergeProfiles): admin in either pool is an
+  // admin; otherwise the scheduler_users doc governs approval when it exists,
+  // and the MCHS-app doc when it doesn't. Same rule as normalizeProfile() in
+  // functions/index.js, the security rules' isAdmin(), and the iOS AuthService,
+  // so every resolver agrees on who someone is.
+  const profile: ProfileState =
+    webProfile === undefined || appProfile === undefined
+      ? undefined
+      : mergeProfiles(webProfile, appProfile)
 
   const signedIn = firebaseUser !== null
   const loading =

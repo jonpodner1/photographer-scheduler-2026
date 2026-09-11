@@ -71,12 +71,15 @@ export default function App() {
     )
   }
 
-  // Awaiting admin approval / denied — no app access. The profile doc is
-  // live-subscribed, so approval flips this instantly without a reload.
+  // Awaiting admin approval / denied / never requested — no app access. The
+  // profile docs are live-subscribed, so approval flips this instantly.
   if (profile.status !== 'active') {
     return (
       <Routes>
-        <Route path="*" element={<AccountStatusPage denied={profile.status === 'denied'} />} />
+        <Route
+          path="*"
+          element={<AccountStatusPage status={profile.status} source={profile.source} uid={profile.uid} />}
+        />
       </Routes>
     )
   }

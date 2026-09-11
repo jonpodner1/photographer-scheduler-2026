@@ -48,34 +48,46 @@ function requireAuth(request) {
 }
 
 /**
- * Maps a scheduler_users doc or an iOS-app users doc to one shape:
+ * Event status after a slot or slotsNeeded change: cancelled sticks, otherwise
+ * filled/open by count. Used by every path that touches slots so the two
+ * clients never see a stale status.
+ */
+function nextStatus(currentStatus, slotCount, slotsNeeded) {
+  if (currentStatus === "cancelled") return "cancelled";
+  return slotCount >= (slotsNeeded || 1) ? "filled" : "open";
+}
+
+/**
+ * Maps a scheduler_users doc and/or an iOS-app users doc to one shape:
  * { displayName, email, role: 'admin'|'photographer', active: bool, fcmToken }.
  * Returns null if neither doc exists.
+ *
+ * ONE identity rule, shared with the security rules (isAdmin) and both clients
+ * (web AuthContext.mergeProfiles, iOS AuthService):
+ *   - admin in EITHER pool → admin (and always active);
+ *   - otherwise, if the scheduler doc exists its approval status governs;
+ *   - otherwise the iOS isPhotographer capability flag governs.
  */
 function normalizeProfile(schedulerSnap, appSnap) {
-  if (schedulerSnap && schedulerSnap.exists) {
-    const d = schedulerSnap.data();
-    return {
-      displayName: d.displayName || d.email || "Photographer",
-      email: d.email || "",
-      role: d.role === "admin" ? "admin" : "photographer",
-      active: d.status !== "pending" && d.status !== "denied",
-      fcmToken: d.fcmToken || (appSnap && appSnap.exists ? appSnap.data().fcmToken : null) || null,
-    };
-  }
-  if (appSnap && appSnap.exists) {
-    const d = appSnap.data();
-    const name = `${d.firstName || ""} ${d.lastName || ""}`.trim();
-    return {
-      displayName: name || d.email || "Photographer",
-      email: d.email || "",
-      role: d.isAdmin === true ? "admin" : "photographer",
-      // iOS approval = the isPhotographer capability flag (admins implicitly ok)
-      active: d.isPhotographer === true || d.isAdmin === true,
-      fcmToken: d.fcmToken || null,
-    };
-  }
-  return null;
+  const s = schedulerSnap && schedulerSnap.exists ? schedulerSnap.data() : null;
+  const a = appSnap && appSnap.exists ? appSnap.data() : null;
+  if (!s && !a) return null;
+
+  const isAdmin = (s && s.role === "admin") || (a && a.isAdmin === true) || false;
+  const appName = a ? `${a.firstName || ""} ${a.lastName || ""}`.trim() : "";
+  const active = isAdmin
+    ? true
+    : s
+      ? s.status !== "pending" && s.status !== "denied"
+      : a.isPhotographer === true;
+
+  return {
+    displayName: (s && s.displayName) || appName || (s && s.email) || (a && a.email) || "Photographer",
+    email: (s && s.email) || (a && a.email) || "",
+    role: isAdmin ? "admin" : "photographer",
+    active,
+    fcmToken: (s && s.fcmToken) || (a && a.fcmToken) || null,
+  };
 }
 
 /** Loads a user from scheduler_users, falling back to the iOS app's users collection. */
@@ -243,8 +255,8 @@ exports.withdrawFromEvent = onCall(async (request) => {
     txn.update(eventRef, {
       slots: newSlots,
       photographerIds: newSlots.map((s) => s.photographerId),
-      // A withdrawal reopens the event unless it was cancelled.
-      status: data.status === "cancelled" ? "cancelled" : "open",
+      // Reopens unless cancelled — or still full after an admin over-assignment.
+      status: nextStatus(data.status, newSlots.length, data.slotsNeeded),
     });
 
     return { data, removedSlot };
@@ -292,12 +304,7 @@ exports.deleteAccount = onCall(async (request) => {
       txn.update(doc.ref, {
         slots,
         photographerIds: slots.map((s) => s.photographerId),
-        status:
-          data.status === "cancelled"
-            ? "cancelled"
-            : slots.length >= data.slotsNeeded
-              ? data.status
-              : "open",
+        status: nextStatus(data.status, slots.length, data.slotsNeeded),
       });
     });
   }
@@ -496,6 +503,9 @@ exports.assignPhotographer = onCall(async (request) => {
     const slots = data.slots || [];
     const name = photographer.displayName;
 
+    if (data.status === "cancelled") {
+      throw new HttpsError("failed-precondition", "This event has been cancelled.");
+    }
     if (slots.some((s) => s.photographerId === photographerId)) {
       throw new HttpsError("already-exists", `${name} is already assigned to this event.`);
     }
@@ -513,12 +523,7 @@ exports.assignPhotographer = onCall(async (request) => {
     txn.update(eventRef, {
       slots: newSlots,
       photographerIds: newSlots.map((s) => s.photographerId),
-      status:
-        data.status === "cancelled"
-          ? "cancelled"
-          : newSlots.length >= data.slotsNeeded
-            ? "filled"
-            : "open",
+      status: nextStatus(data.status, newSlots.length, data.slotsNeeded),
     });
 
     return data;
@@ -539,6 +544,48 @@ exports.assignPhotographer = onCall(async (request) => {
     console.error("assignment notification failed", err);
   }
 
+  return { ok: true };
+});
+
+// ─── setUserRole (admin only) ─────────────────────────────────────────────────
+// Promote or demote someone in BOTH user pools at once. Accounts created in the
+// MCHS app hold admin as users/{uid}.isAdmin, which the security rules refuse
+// to let any client change directly; accounts created on the website hold it
+// as scheduler_users/{uid}.role. Writing both (where they exist) keeps every
+// resolver — rules, functions, web, iOS — in agreement.
+exports.setUserRole = onCall(async (request) => {
+  const uid = requireAuth(request);
+  await requireAdmin(uid);
+
+  const { targetUid, role } = request.data || {};
+  if (!targetUid || (role !== "admin" && role !== "photographer")) {
+    throw new HttpsError("invalid-argument", "targetUid and role ('admin' | 'photographer') are required.");
+  }
+  if (targetUid === uid && role !== "admin") {
+    throw new HttpsError("failed-precondition", "You can't remove your own admin access.");
+  }
+
+  const schedulerRef = db.collection(USERS).doc(targetUid);
+  const appRef = db.collection(APP_USERS).doc(targetUid);
+  const [schedulerSnap, appSnap] = await Promise.all([schedulerRef.get(), appRef.get()]);
+  if (!schedulerSnap.exists && !appSnap.exists) {
+    throw new HttpsError("not-found", "User not found.");
+  }
+
+  const batch = db.batch();
+  if (schedulerSnap.exists) {
+    // Promotion implies approval; demotion leaves them an approved photographer.
+    batch.update(schedulerRef, { role, status: "active" });
+  }
+  if (appSnap.exists) {
+    batch.update(
+      appRef,
+      role === "admin"
+        ? { isAdmin: true }
+        : { isAdmin: false, isPhotographer: true, photographerRequested: false }
+    );
+  }
+  await batch.commit();
   return { ok: true };
 });
 
@@ -640,12 +687,26 @@ exports.onAppUserWritten = onDocumentWritten(`${APP_USERS}/{uid}`, async (event)
   }
 });
 
-// ─── Cancellation fan-out ─────────────────────────────────────────────────────
-// When an admin flips status to 'cancelled', notify every signed-up photographer.
+// ─── Event updates: status normalization + cancellation fan-out ──────────────
+// Both clients edit slotsNeeded directly (rules-gated) without recomputing
+// status, so a 'filled' event given more slots stayed 'filled' and vanished
+// from the web's open-events query while iOS still listed it. Normalize here
+// so every path converges; the write is skipped when nothing changes, which
+// also stops the trigger re-firing itself.
 exports.onEventUpdated = onDocumentUpdated(`${EVENTS}/{eventId}`, async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
-  if (before.status === "cancelled" || after.status !== "cancelled") return;
+
+  if (after.status !== "cancelled") {
+    const expected = nextStatus(after.status, (after.slots || []).length, after.slotsNeeded);
+    if (after.status !== expected) {
+      await event.data.after.ref.update({ status: expected });
+    }
+    return;
+  }
+
+  // When an admin flips status to 'cancelled', notify every signed-up photographer.
+  if (before.status === "cancelled") return;
 
   const slots = after.slots || [];
   if (slots.length === 0) return;
