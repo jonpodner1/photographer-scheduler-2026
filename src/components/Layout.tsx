@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useBranding } from '../context/BrandingContext'
@@ -31,7 +32,10 @@ export default function Layout() {
   const { branding } = useBranding()
   const navigate = useNavigate()
 
-  const nav = isAdmin ? adminNav : photographerNav
+  // Admins get their own tabs plus the photographer tabs, so an adviser can
+  // sign up for and shoot events too (the backend already allows it).
+  const nav = isAdmin ? [...adminNav, ...photographerNav] : photographerNav
+  const dividerBefore = isAdmin ? photographerNav[0].to : null
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
@@ -74,9 +78,14 @@ export default function Layout() {
         </div>
         <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4" aria-label="Main">
           {nav.map((item) => (
-            <NavLink key={item.to} to={item.to} className={linkClass}>
-              {item.label}
-            </NavLink>
+            <Fragment key={item.to}>
+              {item.to === dividerBefore && (
+                <span aria-hidden className="mx-1 my-3 w-px shrink-0 bg-white/30" />
+              )}
+              <NavLink to={item.to} className={linkClass}>
+                {item.label}
+              </NavLink>
+            </Fragment>
           ))}
         </nav>
       </header>

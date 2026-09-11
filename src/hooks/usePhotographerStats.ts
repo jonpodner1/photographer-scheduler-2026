@@ -16,7 +16,7 @@ export interface PhotographerStats {
   adjustment: number
   /** eventCount + adjustment — what the ranking sorts on. */
   score: number
-  /** 1-based rank among photographers (ties share a rank). Undefined for admins. */
+  /** 1-based rank among approved users (ties share a rank). Undefined for pending/denied. */
   rank?: number
 }
 
@@ -87,9 +87,10 @@ export function usePhotographerStats(): StatsData | null {
       }
     }
 
-    // Rank approved photographers by score (competition ranking: ties share a rank).
+    // Rank everyone approved — admins included, since an adviser can shoot
+    // events too — by score (competition ranking: ties share a rank).
     const ranked = [...byUid.values()]
-      .filter((s) => s.user.role === 'photographer' && s.user.status === 'active')
+      .filter((s) => s.user.status === 'active')
       .sort((a, b) => b.score - a.score || a.user.displayName.localeCompare(b.user.displayName))
     ranked.forEach((s, i) => {
       s.rank = i > 0 && ranked[i - 1].score === s.score ? ranked[i - 1].rank : i + 1

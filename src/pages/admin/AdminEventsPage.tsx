@@ -46,18 +46,15 @@ export default function AdminEventsPage() {
 
   const events = tab === 'upcoming' ? upcoming : past
 
-  // Assignable photographers come from BOTH pools: approved web signups
+  // Assignable people come from BOTH pools: approved web signups
   // (scheduler_users) and MCHS-app users with the photographer capability.
-  // Deduped by uid, web account wins.
+  // Admins are included — an adviser can shoot an event too. Deduped by uid,
+  // web account wins.
   const photographers = useMemo(() => {
-    const webPhotographers = users.filter(
-      (u) => u.role === 'photographer' && u.status === 'active',
-    )
+    const webPeople = users.filter((u) => u.status === 'active')
     const webUids = new Set(users.map((u) => u.uid))
-    const appPhotographers = appUsers.filter(
-      (u) => u.role === 'photographer' && u.status === 'active' && !webUids.has(u.uid),
-    )
-    return [...webPhotographers, ...appPhotographers]
+    const appPeople = appUsers.filter((u) => u.status === 'active' && !webUids.has(u.uid))
+    return [...webPeople, ...appPeople]
       .sort((a, b) => a.displayName.localeCompare(b.displayName))
   }, [users, appUsers])
 
