@@ -124,6 +124,8 @@ export interface ScheduleEvent {
   slots: PhotographerSlot[]
   photographerIds: string[]
   status: EventStatus
+  /** scheduler_tags doc id. Photos from a tagged event go in a folder named after the tag. */
+  tagId: string | null
   createdBy: string
   createdAt: Date
 }
@@ -169,9 +171,18 @@ export function eventFromDoc(snap: DocumentSnapshot): ScheduleEvent {
     })),
     photographerIds: (d.photographerIds as string[]) ?? [],
     status: d.status === 'filled' ? 'filled' : d.status === 'cancelled' ? 'cancelled' : 'open',
+    tagId: typeof d.tagId === 'string' && d.tagId ? d.tagId : null,
     createdBy: d.createdBy ?? '',
     createdAt: toDate(d.createdAt),
   }
+}
+
+// ─── Event tags ───────────────────────────────────────────────────────────────
+
+/** Admin-managed event category (scheduler_tags). Also names the event's photo-upload parent folder. */
+export interface EventTag {
+  id: string
+  name: string
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────

@@ -139,6 +139,13 @@ export class UploadHttpError extends Error {
 }
 
 /**
+ * Aborts an upload that has made no progress for this long, so a connection
+ * that silently stalls (flaky school Wi-Fi) gets retried instead of hanging.
+ * Not an overall timeout — big files on slow links can take as long as they need.
+ */
+const STALL_MS = 90_000
+
+/**
  * PUTs one file to a presigned URL. XMLHttpRequest rather than fetch because
  * fetch can't report upload progress.
  */
@@ -151,17 +158,34 @@ export function putFile(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
+    let lastActivity = Date.now()
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastActivity > STALL_MS) xhr.abort()
+    }, 5000)
+    const settle = (fn: () => void) => {
+      clearInterval(watchdog)
+      fn()
+    }
+
     xhr.open('PUT', url)
     xhr.setRequestHeader('Content-Type', contentType)
     xhr.upload.onprogress = (e) => {
+      lastActivity = Date.now()
       if (e.lengthComputable) onProgress(e.loaded)
     }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve()
-      else reject(new UploadHttpError(xhr.status))
+    // Body fully sent; the bucket's reply should follow shortly.
+    xhr.upload.onload = () => {
+      lastActivity = Date.now()
     }
-    xhr.onerror = () => reject(new UploadHttpError(0))
-    xhr.onabort = () => reject(new UploadHttpError(0))
+    xhr.onload = () =>
+      settle(() => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve()
+        else reject(new UploadHttpError(xhr.status))
+      })
+    xhr.onerror = () => settle(() => reject(new UploadHttpError(0)))
+    // A stall abort is retried like a network error; a user cancel is told
+    // apart by the queue (job.cancelled).
+    xhr.onabort = () => settle(() => reject(new UploadHttpError(0)))
     onStart(xhr)
     xhr.send(file)
   })

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { useTags } from '../context/TagsContext'
 import {
   isFull,
   isOpen,
@@ -42,6 +43,7 @@ interface EventCardProps {
 }
 
 export default function EventCard({ event, signedUp, actions, children, muted }: EventCardProps) {
+  const tag = useTags().tagName(event.tagId)
   return (
     <Card
       className={cn(
@@ -55,7 +57,12 @@ export default function EventCard({ event, signedUp, actions, children, muted }:
           <h3 className="font-semibold">{event.eventName}</h3>
           <p className="text-sm text-muted-foreground">{formatDateLong(event.date)}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {tag && (
+            <Badge variant="outline" className="text-muted-foreground">
+              {tag}
+            </Badge>
+          )}
           {signedUp && (
             <Badge variant="outline" className="border-transparent bg-primary/10 text-primary">
               You're signed up

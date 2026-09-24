@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, X } from 'lucide-react'
 import { useUploads } from '../context/UploadContext'
 import type { UploadJobView } from '../services/photoUploadQueue'
@@ -13,17 +14,35 @@ const photos = (n: number) => `${n} ${n === 1 ? 'photo' : 'photos'}`
  */
 export default function UploadProgressPanel() {
   const { jobs } = useUploads()
-  if (jobs.length === 0) return null
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelHeight, setPanelHeight] = useState(0)
+  const visible = jobs.length > 0
+
+  // The panel floats over the page; a matching spacer lets the page scroll
+  // far enough that it never hides the last card's buttons.
+  useEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return
+    const observer = new ResizeObserver(() => setPanelHeight(panel.offsetHeight))
+    observer.observe(panel)
+    return () => observer.disconnect()
+  }, [visible])
+
+  if (!visible) return null
 
   return (
-    <div
-      className="fixed inset-x-4 bottom-4 z-50 flex flex-col gap-2 sm:left-auto sm:w-96 print:hidden"
-      aria-live="polite"
-    >
-      {jobs.map((job) => (
-        <JobCard key={job.id} job={job} />
-      ))}
-    </div>
+    <>
+      <div aria-hidden style={{ height: panelHeight }} className="print:hidden" />
+      <div
+        ref={panelRef}
+        className="fixed inset-x-4 bottom-4 z-50 flex flex-col gap-2 sm:left-auto sm:w-96 print:hidden"
+        aria-live="polite"
+      >
+        {jobs.map((job) => (
+          <JobCard key={job.id} job={job} />
+        ))}
+      </div>
+    </>
   )
 }
 
@@ -34,7 +53,9 @@ function JobCard({ job }: { job: UploadJobView }) {
 
   let title: string
   if (running) title = `Uploading ${photos(job.total)}`
-  else if (job.state === 'cancelled') title = 'Upload cancelled'
+  else if (job.state === 'cancelled') {
+    title = job.done ? `Cancelled: ${job.done} of ${photos(job.total)} uploaded` : 'Upload cancelled'
+  }
   else if (job.total === 0) title = 'Nothing new to upload'
   else if (allDone) title = `${photos(job.done)} uploaded`
   else title = `${job.done} of ${photos(job.total)} uploaded`

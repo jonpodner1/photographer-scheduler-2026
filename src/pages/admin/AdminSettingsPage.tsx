@@ -6,6 +6,7 @@ import {
   type PhotoUploadSettings,
 } from '../../services/photoUploads'
 import Spinner from '../../components/Spinner'
+import TagManager from '../../components/TagManager'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -30,6 +31,17 @@ function previewFolder(folder: string): string {
 }
 
 export default function AdminSettingsPage() {
+  return (
+    <div className="mx-auto max-w-xl">
+      <h2 className="mb-4 text-lg font-semibold">Settings</h2>
+      <PhotoUploadsCard />
+      <TagManager />
+    </div>
+  )
+}
+
+/** Photo upload switch + Wasabi settings (keys are write-only). */
+function PhotoUploadsCard() {
   const [saved, setSaved] = useState<PhotoUploadSettings | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -85,12 +97,9 @@ export default function AdminSettingsPage() {
 
   if (loadError) {
     return (
-      <div className="mx-auto max-w-xl">
-        <h2 className="mb-4 text-lg font-semibold">Settings</h2>
-        <Alert variant="destructive">
-          <AlertDescription>Couldn't load settings: {loadError}</AlertDescription>
-        </Alert>
-      </div>
+      <Alert variant="destructive">
+        <AlertDescription>Couldn't load photo upload settings: {loadError}</AlertDescription>
+      </Alert>
     )
   }
 
@@ -102,158 +111,157 @@ export default function AdminSettingsPage() {
     )
   }
 
-  const exampleEvent = 'Homecoming Game 2026-10-03'
+  const exampleEvent = 'Varsity Football 2026-10-03'
   const folderPreview = previewFolder(folder)
 
   return (
-    <div className="mx-auto max-w-xl">
-      <h2 className="mb-4 text-lg font-semibold">Settings</h2>
+    <Card>
+      <CardContent>
+        <form onSubmit={submit} className="space-y-5" autoComplete="off">
+          <div>
+            <h3 className="font-semibold">Photo Uploads</h3>
+            <p className="text-sm text-muted-foreground">
+              Photographers upload their photos from any event they're signed up for. Files go
+              straight to your Wasabi bucket, one folder per event.
+            </p>
+          </div>
 
-      <Card>
-        <CardContent>
-          <form onSubmit={submit} className="space-y-5" autoComplete="off">
-            <div>
-              <h3 className="font-semibold">Photo Uploads</h3>
-              <p className="text-sm text-muted-foreground">
-                Photographers upload their photos from any event they're signed up for. Files go
-                straight to your Wasabi bucket, one folder per event.
-              </p>
-            </div>
-
-            <label className="flex items-start gap-3 rounded-lg border border-border p-3">
-              <Checkbox
-                checked={enabled}
-                onCheckedChange={(v) => {
-                  setEnabled(v === true)
-                  setError(null)
-                }}
-                className="mt-0.5"
-              />
-              <span className="text-sm">
-                <span className="font-medium">Let photographers upload photos</span>
-                <br />
-                <span className="text-muted-foreground">
-                  Adds an Upload Photos button to the events they're signed up for.
-                </span>
+          <label className="flex items-start gap-3 rounded-lg border border-border p-3">
+            <Checkbox
+              checked={enabled}
+              onCheckedChange={(v) => {
+                setEnabled(v === true)
+                setError(null)
+              }}
+              className="mt-0.5"
+            />
+            <span className="text-sm">
+              <span className="font-medium">Let photographers upload photos</span>
+              <br />
+              <span className="text-muted-foreground">
+                Adds an Upload Photos button to the events they're signed up for.
               </span>
-            </label>
+            </span>
+          </label>
 
-            {enabled && (
-              <>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bucket">Bucket name</Label>
-                    <Input
-                      id="bucket"
-                      value={bucket}
-                      onChange={(e) => setBucket(e.target.value)}
-                      placeholder="mchs-yearbook-photos"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="region">Region</Label>
-                    <Input
-                      id="region"
-                      list="wasabi-regions"
-                      value={region}
-                      onChange={(e) => setRegion(e.target.value)}
-                      placeholder="us-east-1"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      required
-                    />
-                    <datalist id="wasabi-regions">
-                      {WASABI_REGIONS.map((r) => (
-                        <option key={r} value={r} />
-                      ))}
-                    </datalist>
-                  </div>
-                </div>
-
+          {enabled && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="accessKeyId">Access key</Label>
+                  <Label htmlFor="bucket">Bucket name</Label>
                   <Input
-                    id="accessKeyId"
-                    name="wasabi-access-key"
-                    value={accessKeyId}
-                    onChange={(e) => setAccessKeyId(e.target.value)}
-                    placeholder={
-                      saved.accessKeyHint
-                        ? `Saved (ends in ${saved.accessKeyHint}). Leave blank to keep it`
-                        : 'Wasabi access key'
-                    }
-                    autoComplete="off"
+                    id="bucket"
+                    value={bucket}
+                    onChange={(e) => setBucket(e.target.value)}
+                    placeholder="mchs-yearbook-photos"
                     autoCapitalize="none"
                     spellCheck={false}
+                    required
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="secretAccessKey">Secret key</Label>
+                  <Label htmlFor="region">Region</Label>
                   <Input
-                    id="secretAccessKey"
-                    name="wasabi-secret-key"
-                    type="password"
-                    value={secretAccessKey}
-                    onChange={(e) => setSecretAccessKey(e.target.value)}
-                    placeholder={
-                      saved.hasSecretKey ? 'Saved. Leave blank to keep it' : 'Wasabi secret key'
-                    }
-                    autoComplete="new-password"
+                    id="region"
+                    list="wasabi-regions"
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    placeholder="us-east-1"
+                    autoCapitalize="none"
                     spellCheck={false}
+                    required
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Saved keys are never shown again, to you or any other admin.
-                  </p>
+                  <datalist id="wasabi-regions">
+                    {WASABI_REGIONS.map((r) => (
+                      <option key={r} value={r} />
+                    ))}
+                  </datalist>
                 </div>
+              </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="folder">
-                    Folder <span className="font-normal text-muted-foreground">(optional)</span>
-                  </Label>
-                  <Input
-                    id="folder"
-                    value={folder}
-                    onChange={(e) => setFolder(e.target.value)}
-                    placeholder="Yearbook/2026-27"
-                    spellCheck={false}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Leave blank to put event folders at the top of the bucket. Use / for
-                    subfolders.
-                  </p>
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="accessKeyId">Access key</Label>
+                <Input
+                  id="accessKeyId"
+                  name="wasabi-access-key"
+                  value={accessKeyId}
+                  onChange={(e) => setAccessKeyId(e.target.value)}
+                  placeholder={
+                    saved.accessKeyHint
+                      ? `Saved (ends in ${saved.accessKeyHint}). Leave blank to keep it`
+                      : 'Wasabi access key'
+                  }
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="secretAccessKey">Secret key</Label>
+                <Input
+                  id="secretAccessKey"
+                  name="wasabi-secret-key"
+                  type="password"
+                  value={secretAccessKey}
+                  onChange={(e) => setSecretAccessKey(e.target.value)}
+                  placeholder={
+                    saved.hasSecretKey ? 'Saved. Leave blank to keep it' : 'Wasabi secret key'
+                  }
+                  autoComplete="new-password"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Saved keys are never shown again, to you or any other admin.
+                </p>
+              </div>
 
-                <div className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-                  <p className="mb-1 font-medium text-foreground">Files are saved as</p>
-                  <p className="break-all font-mono">
-                    {bucket.trim() || 'your-bucket'} / {folderPreview && `${folderPreview} / `}
-                    {exampleEvent} / {exampleEvent} 1.jpg, 2.jpg, 3.jpg…
-                  </p>
-                </div>
-              </>
-            )}
+              <div className="space-y-1.5">
+                <Label htmlFor="folder">
+                  Folder <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="folder"
+                  value={folder}
+                  onChange={(e) => setFolder(e.target.value)}
+                  placeholder="Yearbook/2026-27"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to put event folders at the top of the bucket. Use / for
+                  subfolders.
+                </p>
+              </div>
 
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
+              <div className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+                <p className="mb-1 font-medium text-foreground">Files are saved as</p>
+                <p className="break-all font-mono">
+                  {bucket.trim() || 'your-bucket'} / {folderPreview && `${folderPreview} / `}
+                  Football / {exampleEvent} / {exampleEvent} 1.jpg, 2.jpg, 3.jpg…
+                </p>
+                <p className="mt-1">
+                  Football is the event's tag. Untagged events skip the tag folder.
+                </p>
+              </div>
+            </>
+          )}
 
-            <Button type="submit" size="lg" disabled={busy} className="w-full">
-              {busy
-                ? enabled
-                  ? 'Checking Wasabi…'
-                  : 'Saving…'
-                : justSaved
-                  ? 'Saved ✓'
-                  : 'Save Settings'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <Button type="submit" size="lg" disabled={busy} className="w-full">
+            {busy
+              ? enabled
+                ? 'Checking Wasabi…'
+                : 'Saving…'
+              : justSaved
+                ? 'Saved ✓'
+                : 'Save Settings'}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   )
 }

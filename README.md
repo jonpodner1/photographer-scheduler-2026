@@ -29,9 +29,10 @@ First-time setup (Firebase console, `.env.local`, first admin account):
    ```bash
    npm install
    npm run dev          # against the real Firebase project
-   # or, without touching live data:
-   npm run emulators    # terminal 1: auth/firestore/functions emulators
-   npm run dev:emulators # terminal 2
+   # or, without touching live data (see SETUP.md → local emulators):
+   npm run emulators       # terminal 1: auth/firestore/functions emulators
+   npm run emulators:seed  # terminal 2: test accounts + events
+   npm run dev:emulators   # terminal 2: app at http://localhost:5173
    ```
 
 2. **Push to GitHub**
@@ -109,6 +110,42 @@ Uploads are filed as `YYYY-MM-DD/Name - caption - timestamp.ext` in the
 bucket and logged to the `photo_submissions` collection (admins see
 everyone's, users their own). Per-file limit: 2 GB, enforced in the app and
 in `createUploadUrl`.
+
+## Event photo uploads (web) — one time
+
+Photographers upload the photos they shot from any event they're signed up
+for (My Schedule, Past Events, or their Dashboard). Files go straight from the
+browser to a Wasabi bucket; photographers only ever see a progress bar.
+This is separate from Photo Drop above (different settings, and it can use a
+different bucket).
+
+1. Deploy the backend (new functions + rules): `firebase deploy --only firestore,functions`
+2. In Wasabi, create (or reuse) a bucket and an access key. The key needs
+   `s3:ListBucket` (Settings checks the bucket when you save) and
+   `s3:PutObject`. No CORS setup is needed; Wasabi allows browser uploads on
+   every bucket by default.
+3. On the website: **Admin → Settings → Photo Uploads**, turn it on, enter the
+   bucket, region, keys, and an optional folder, then **Save**. Saving tests the
+   bucket and keys first. Saved keys are never shown again to anyone; admins
+   only see the access key's last 4 characters.
+4. Optional: **Settings → Event Tags** to create tags like Football, then pick
+   a tag on each event (Edit Event, or New tag right in the form).
+
+Files are named by the server, numbered 1, 2, 3… per event folder:
+
+```
+<folder>/<Tag>/<Event Name YYYY-MM-DD>/<Event Name YYYY-MM-DD> 1.jpg
+<folder>/<Event Name YYYY-MM-DD>/<Event Name YYYY-MM-DD> 1.jpg     (untagged)
+```
+
+- Keys and bucket settings live in `scheduler_private/photoUploads`, which the
+  rules close to every client (admins included). Only the functions read it.
+- Numbers come from a counter per folder (`scheduler_photo_folders`), handed
+  out in a transaction, so simultaneous uploads never collide or overwrite.
+  A browser asks for a few numbers at a time, so a closed tab leaves at most a
+  small gap in the numbering.
+- Renaming an event, changing its tag, or renaming a tag only affects photos
+  uploaded afterward. Files already in Wasabi stay where they are.
 
 ## Architecture notes
 

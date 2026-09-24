@@ -136,6 +136,13 @@ service cloud.firestore {
       allow write: if isAdmin() && doc != 'photoUploads';
     }
 
+    // Event tags (e.g. "Football"). Admins manage them; a tagged event's
+    // photos upload into a folder named after its tag.
+    match /scheduler_tags/{tagId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     // ═══ Server-only (Cloud Functions / Admin SDK) ══════════════════════════
     // Wasabi settings including access keys, and per-folder upload counters.
     // No client may read or write these — admins included — so saved keys are

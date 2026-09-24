@@ -112,6 +112,8 @@ export interface EventFormData {
   location: string
   notes: string | null
   slotsNeeded: number
+  /** Omitted (CSV import) = no tag on create, unchanged on update. */
+  tagId?: string | null
 }
 
 export async function createEvent(
@@ -130,6 +132,7 @@ export async function createEvent(
     slots: [],
     photographerIds: [],
     status: 'open',
+    tagId: data.tagId ?? null,
     createdBy,
     createdAt: serverTimestamp(),
     // false suppresses the new-event notification fan-out (used by CSV bulk import)
@@ -148,6 +151,7 @@ export async function updateEvent(id: string, data: EventFormData): Promise<void
     location: data.location,
     notes: data.notes,
     slotsNeeded: data.slotsNeeded,
+    ...(data.tagId !== undefined && { tagId: data.tagId }),
   })
 }
 

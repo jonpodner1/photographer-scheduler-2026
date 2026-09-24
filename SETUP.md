@@ -97,18 +97,25 @@ If you already have an admin account in the MCHS iOS app (`users/{uid}` with
 
 ## Optional: local emulators
 
-To exercise signup/withdraw logic without touching live data. The Firestore
-emulator needs Java 21+ (`brew install openjdk` and make sure it's on PATH,
-e.g. `export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"`).
+Runs the whole app on your Mac without touching live data. The emulators run
+under a `demo-scheduler` project, which Firebase keeps fully offline. The
+Firestore emulator needs Java 21+ (`brew install openjdk@21`, then put it on
+PATH, e.g. `export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"`).
 
 ```bash
 # terminal 1 — emulators (auth :9099, firestore :8080, functions :5001, UI :4000)
 cd functions && npm install && cd ..
 npm run emulators
 
-# terminal 2 — app pointed at the emulators
+# terminal 2 — test accounts and events, then the app pointed at the emulators
+npm run emulators:seed
 npm run dev:emulators
 ```
 
-Emulator data is throwaway; create accounts freely. To make an emulator user an
-admin, edit its `scheduler_users` doc in the Emulator UI (http://localhost:4000).
+Sign in at http://localhost:5173 with `admin@example.com` or
+`photographer@example.com` (password `password`; the seed script lists all
+four accounts). Emulator data is thrown away when the emulators stop; re-run
+`npm run emulators:seed` after each restart.
+
+Photo uploads work locally too: enable them on the Settings page with your
+real Wasabi bucket and keys, and files from the local app land in Wasabi.

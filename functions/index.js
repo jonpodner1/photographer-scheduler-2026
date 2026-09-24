@@ -496,8 +496,9 @@ exports.completeUpload = onCall(
 //   scheduler_photo_folders/{hash}   next file number for one bucket folder.
 //
 // Bucket layout (every event gets its own folder, named with its date so two
-// events called "Varsity Football" never mix):
-//   <folder>/<Event Name YYYY-MM-DD>/<Event Name YYYY-MM-DD> <n>.<ext>
+// events called "Varsity Football" never mix; a tagged event's folder sits
+// inside a folder named after its tag, e.g. Football/):
+//   <folder>/[<Tag>/]<Event Name YYYY-MM-DD>/<Event Name YYYY-MM-DD> <n>.<ext>
 // n counts 1, 2, 3… per folder and is handed out inside a transaction, so
 // photographers uploading at the same time never collide or overwrite.
 //
@@ -509,6 +510,7 @@ const crypto = require("node:crypto");
 const PHOTO_UPLOADS_FLAG_DOC = "scheduler_settings/photoUploads";
 const PHOTO_UPLOADS_CONFIG_DOC = "scheduler_private/photoUploads";
 const PHOTO_UPLOAD_FOLDERS = "scheduler_photo_folders";
+const EVENT_TAGS = "scheduler_tags";
 // Event dates are stored as local midnight; the school runs on Central time.
 const SCHOOL_TIME_ZONE = "America/Chicago";
 const MAX_PHOTO_URLS_PER_CALL = 25;
@@ -709,8 +711,8 @@ exports.savePhotoUploadSettings = onCall(async (request) => {
 exports.createPhotoUploadUrls = onCall(async (request) => {
   const uid = requireAuth(request);
   const { eventId, files } = request.data || {};
-  if (typeof eventId !== "string" || !eventId) {
-    throw new HttpsError("invalid-argument", "eventId is required.");
+  if (typeof eventId !== "string" || !eventId || eventId.includes("/")) {
+    throw new HttpsError("invalid-argument", "A valid eventId is required.");
   }
   if (!Array.isArray(files) || files.length === 0 || files.length > MAX_PHOTO_URLS_PER_CALL) {
     throw new HttpsError("invalid-argument", `Send between 1 and ${MAX_PHOTO_URLS_PER_CALL} files.`);
@@ -752,8 +754,17 @@ exports.createPhotoUploadUrls = onCall(async (request) => {
     throw new HttpsError("permission-denied", "You can only upload photos for events you're signed up for.");
   }
 
+  // Tagged events go inside the tag's folder. The tag's current name is used,
+  // so renaming a tag starts a new folder for later uploads; a deleted tag
+  // (or one whose name has no usable characters) means no tag folder.
+  let tagFolder = "";
+  if (typeof event.tagId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(event.tagId)) {
+    const tagSnap = await db.collection(EVENT_TAGS).doc(event.tagId).get();
+    if (tagSnap.exists) tagFolder = safePathSegment(tagSnap.data().name, 60);
+  }
+
   const name = eventUploadName(event);
-  const prefix = config.folder ? `${config.folder}/${name}` : name;
+  const prefix = [config.folder, tagFolder, name].filter(Boolean).join("/");
   // Object keys max out at 1024 bytes; leave room for " <n>.<ext>".
   if (Buffer.byteLength(`${prefix}/${name}`) > 1000) {
     throw new HttpsError("failed-precondition", "The upload folder and event name are too long for Wasabi.");

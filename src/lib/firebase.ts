@@ -37,4 +37,5 @@ export const COL = {
   events: 'scheduler_events',
   notifications: 'scheduler_notifications',
   settings: 'scheduler_settings',
+  tags: 'scheduler_tags',
 } as const

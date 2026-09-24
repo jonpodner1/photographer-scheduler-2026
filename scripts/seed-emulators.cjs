@@ -46,12 +46,17 @@ const slot = (uid, name) => ({
 });
 const PAT = slot("photog-1", "Pat Photographer");
 
+const TAGS = [
+  { id: "tag-football", name: "Football" },
+  { id: "tag-fine-arts", name: "Fine Arts" },
+];
+
 const EVENTS = [
-  { id: "homecoming", eventName: "Homecoming Game", offset: 0, hour: 19, location: "Main Stadium", slotsNeeded: 2, slots: [PAT] },
-  { id: "choir", eventName: "Fall Choir Concert", offset: -5, hour: 18, location: "Auditorium", slotsNeeded: 1, slots: [PAT] },
+  { id: "homecoming", eventName: "Homecoming Game", tagId: "tag-football", offset: 0, hour: 19, location: "Main Stadium", slotsNeeded: 2, slots: [PAT] },
+  { id: "choir", eventName: "Fall Choir Concert", tagId: "tag-fine-arts", offset: -5, hour: 18, location: "Auditorium", slotsNeeded: 1, slots: [PAT] },
   { id: "senior-night", eventName: "Senior Night: Volleyball / Soccer", offset: -2, hour: 17, location: "Gym", slotsNeeded: 2, slots: [PAT] },
-  { id: "football-1", eventName: "Varsity Football", offset: 7, hour: 19, location: "Main Stadium", slotsNeeded: 2, slots: [PAT] },
-  { id: "football-2", eventName: "Varsity Football", offset: 14, hour: 19, location: "Main Stadium", slotsNeeded: 2, slots: [] },
+  { id: "football-1", eventName: "Varsity Football", tagId: "tag-football", offset: 7, hour: 19, location: "Main Stadium", slotsNeeded: 2, slots: [PAT] },
+  { id: "football-2", eventName: "Varsity Football", tagId: "tag-football", offset: 14, hour: 19, location: "Main Stadium", slotsNeeded: 2, slots: [] },
   { id: "spirit-week", eventName: "Spirit Week Assembly", offset: 3, hour: 9, location: "Gym", slotsNeeded: 1, slots: [PAT], status: "cancelled" },
 ];
 
@@ -86,6 +91,14 @@ async function main() {
     selfSignupEnabled: true,
   });
 
+  for (const t of TAGS) {
+    await db.collection("scheduler_tags").doc(t.id).set({
+      name: t.name,
+      createdBy: "admin-1",
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  }
+
   for (const e of EVENTS) {
     const slots = e.slots;
     await db.collection("scheduler_events").doc(e.id).set({
@@ -99,6 +112,7 @@ async function main() {
       slots,
       photographerIds: slots.map((s) => s.photographerId),
       status: e.status || (slots.length >= e.slotsNeeded ? "filled" : "open"),
+      tagId: e.tagId || null,
       createdBy: "admin-1",
       createdAt: FieldValue.serverTimestamp(),
       notifyOnCreate: false,
