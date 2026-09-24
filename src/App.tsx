@@ -21,6 +21,7 @@ import AdminUsersPage from './pages/admin/AdminUsersPage'
 import AdminPhotographerPage from './pages/admin/AdminPhotographerPage'
 import AdminReportsPage from './pages/admin/AdminReportsPage'
 import AdminBrandingPage from './pages/admin/AdminBrandingPage'
+import AdminSettingsPage from './pages/admin/AdminSettingsPage'
 
 function ConfigNotice() {
   return (
@@ -125,6 +126,7 @@ export default function App() {
             <Route path="/admin/users/:uid" element={<AdminPhotographerPage />} />
             <Route path="/admin/reports" element={<AdminReportsPage />} />
             <Route path="/admin/branding" element={<AdminBrandingPage />} />
+            <Route path="/admin/settings" element={<AdminSettingsPage />} />
           </>
         )}
 

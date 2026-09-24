@@ -5,6 +5,7 @@ import { withdrawFromEvent } from '../../services/callables'
 import EventCard from '../../components/EventCard'
 import Modal from '../../components/Modal'
 import Spinner from '../../components/Spinner'
+import UploadPhotosButton from '../../components/UploadPhotosButton'
 import type { ScheduleEvent } from '../../types/models'
 import { formatDateLong, startOfDay } from '../../lib/format'
 import { Badge } from '@/components/ui/badge'
@@ -65,15 +66,18 @@ export default function MySchedulePage() {
               event={event}
               signedUp
               actions={
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    setWithdrawTarget(event)
-                    setError(null)
-                  }}
-                >
-                  Withdraw
-                </Button>
+                <>
+                  <UploadPhotosButton event={event} />
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      setWithdrawTarget(event)
+                      setError(null)
+                    }}
+                  >
+                    Withdraw
+                  </Button>
+                </>
               }
             >
               {mySlot(event)?.requestedCamera && (

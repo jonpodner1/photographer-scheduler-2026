@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import EventCard from './EventCard'
 import Spinner from './Spinner'
+import UploadPhotosButton from './UploadPhotosButton'
+import { useUploads } from '../context/UploadContext'
 import { usePhotographerStats } from '../hooks/usePhotographerStats'
 import { updateScoreAdjustment } from '../services/users'
 import type { AppUser } from '../types/models'
@@ -13,14 +15,17 @@ interface Props {
   photographer: AppUser
   /** Show the admin-only score override controls. */
   adminControls?: boolean
+  /** Show Upload Photos on the events (the photographer's own dashboard). */
+  uploads?: boolean
 }
 
 /**
  * Rank + score summary and the photographer's current/previous events.
  * Used by the photographer's own Dashboard tab and by the admin per-user view.
  */
-export default function PhotographerDashboard({ photographer, adminControls }: Props) {
+export default function PhotographerDashboard({ photographer, adminControls, uploads }: Props) {
   const stats = usePhotographerStats()
+  const { canUpload } = useUploads()
   const [busy, setBusy] = useState(false)
 
   if (!stats) {
@@ -124,7 +129,12 @@ export default function PhotographerDashboard({ photographer, adminControls }: P
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {s.upcoming.map((event) => (
-              <EventCard key={event.id} event={event} signedUp />
+              <EventCard
+                key={event.id}
+                event={event}
+                signedUp
+                actions={uploads && canUpload(event) ? <UploadPhotosButton event={event} /> : undefined}
+              />
             ))}
           </div>
         )}
@@ -140,7 +150,12 @@ export default function PhotographerDashboard({ photographer, adminControls }: P
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {s.past.map((event) => (
-              <EventCard key={event.id} event={event} muted />
+              <EventCard
+                key={event.id}
+                event={event}
+                muted
+                actions={uploads && canUpload(event) ? <UploadPhotosButton event={event} /> : undefined}
+              />
             ))}
           </div>
         )}

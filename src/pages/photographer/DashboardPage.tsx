@@ -8,7 +8,7 @@ export default function DashboardPage() {
   return (
     <div>
       <h2 className="mb-4 text-lg font-semibold">My Dashboard</h2>
-      <PhotographerDashboard photographer={profile} />
+      <PhotographerDashboard photographer={profile} uploads />
     </div>
   )
 }

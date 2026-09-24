@@ -6,6 +6,18 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "emulators",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": ["-c", "PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH npm run emulators"],
+      "port": 4000
+    },
+    {
+      "name": "dev (emulators)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:emulators"],
+      "port": 5173
     }
   ]
 }

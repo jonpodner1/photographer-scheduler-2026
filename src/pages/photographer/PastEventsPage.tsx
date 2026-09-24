@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { useUploads } from '../../context/UploadContext'
 import { listenPastEvents } from '../../services/events'
 import EventCard from '../../components/EventCard'
 import Spinner from '../../components/Spinner'
+import UploadPhotosButton from '../../components/UploadPhotosButton'
 import { isSignedUpBy, type ScheduleEvent } from '../../types/models'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -10,6 +12,7 @@ import { Label } from '@/components/ui/label'
 
 export default function PastEventsPage() {
   const { profile } = useAuth()
+  const { canUpload } = useUploads()
   const [events, setEvents] = useState<ScheduleEvent[] | null>(null)
   const [mineOnly, setMineOnly] = useState(false)
 
@@ -49,7 +52,13 @@ export default function PastEventsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {shown.map((event) => (
-            <EventCard key={event.id} event={event} signedUp={isSignedUpBy(event, profile.uid)} muted />
+            <EventCard
+              key={event.id}
+              event={event}
+              signedUp={isSignedUpBy(event, profile.uid)}
+              muted
+              actions={canUpload(event) ? <UploadPhotosButton event={event} /> : undefined}
+            />
           ))}
         </div>
       )}

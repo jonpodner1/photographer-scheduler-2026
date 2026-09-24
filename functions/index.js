@@ -339,7 +339,12 @@ exports.deleteAccount = onCall(async (request) => {
 // One-time setup (see README): create the Wasabi bucket + access keys, then
 // `firebase functions:secrets:set` WASABI_ACCESS_KEY / WASABI_SECRET_KEY and
 // set WASABI_BUCKET / WASABI_REGION in functions/.env.
-const { S3Client, PutObjectCommand, HeadObjectCommand } = require("@aws-sdk/client-s3");
+const {
+  S3Client,
+  PutObjectCommand,
+  HeadObjectCommand,
+  HeadBucketCommand,
+} = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 const WASABI_ACCESS_KEY = defineSecret("WASABI_ACCESS_KEY");
@@ -474,6 +479,322 @@ exports.completeUpload = onCall(
     return { ok: true };
   }
 );
+
+// ─── Event photo uploads (web app) ────────────────────────────────────────────
+// Photographers upload the photos they shot at an event they're signed up for,
+// straight from the browser into a Wasabi bucket an admin sets up on the
+// website's Settings page. Unlike Photo Drop above, the bucket and keys are
+// runtime settings rather than deploy-time params, so they live in Firestore:
+//
+//   scheduler_settings/photoUploads  { enabled } — readable by any signed-in
+//                                    user; drives the Upload Photos button.
+//   scheduler_private/photoUploads   bucket, region, folder, access keys. The
+//                                    rules deny every client, admins included,
+//                                    and these functions never return the keys
+//                                    (only the access key's last 4 characters),
+//                                    so saved keys are never shown to anyone.
+//   scheduler_photo_folders/{hash}   next file number for one bucket folder.
+//
+// Bucket layout (every event gets its own folder, named with its date so two
+// events called "Varsity Football" never mix):
+//   <folder>/<Event Name YYYY-MM-DD>/<Event Name YYYY-MM-DD> <n>.<ext>
+// n counts 1, 2, 3… per folder and is handed out inside a transaction, so
+// photographers uploading at the same time never collide or overwrite.
+//
+// Files go directly to Wasabi via short-lived presigned PUT URLs; Wasabi
+// answers browser CORS preflights on every bucket by default, so the bucket
+// needs no CORS setup.
+const crypto = require("node:crypto");
+
+const PHOTO_UPLOADS_FLAG_DOC = "scheduler_settings/photoUploads";
+const PHOTO_UPLOADS_CONFIG_DOC = "scheduler_private/photoUploads";
+const PHOTO_UPLOAD_FOLDERS = "scheduler_photo_folders";
+// Event dates are stored as local midnight; the school runs on Central time.
+const SCHOOL_TIME_ZONE = "America/Chicago";
+const MAX_PHOTO_URLS_PER_CALL = 25;
+const BUCKET_NAME_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+const WASABI_REGION_RE = /^[a-z]{2}-[a-z]+-\d{1,2}$/;
+
+// Accepted photo extensions (common formats plus camera RAW) → Content-Type
+// stored on the object. Mirrored by PHOTO_EXTENSIONS in the web app, which
+// filters the picker; this list is the one that's enforced.
+const PHOTO_CONTENT_TYPES = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  heic: "image/heic",
+  heif: "image/heif",
+  webp: "image/webp",
+  gif: "image/gif",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  dng: "image/x-adobe-dng",
+  cr2: "image/x-canon-cr2",
+  cr3: "image/x-canon-cr3",
+  nef: "image/x-nikon-nef",
+  nrw: "image/x-nikon-nrw",
+  arw: "image/x-sony-arw",
+  raf: "image/x-fuji-raf",
+  orf: "image/x-olympus-orf",
+  rw2: "image/x-panasonic-rw2",
+  pef: "image/x-pentax-pef",
+  srw: "image/x-samsung-srw",
+};
+
+/** Client for the admin-configured bucket (not the Photo Drop one). */
+function photoUploadsClient(cfg) {
+  return new S3Client({
+    region: cfg.region,
+    // PHOTO_UPLOADS_ENDPOINT exists only for local testing against an S3 mock
+    // (set in functions/.env.local, which the emulator reads and deploys skip).
+    endpoint: process.env.PHOTO_UPLOADS_ENDPOINT || `https://s3.${cfg.region}.wasabisys.com`,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: cfg.accessKeyId,
+      secretAccessKey: cfg.secretAccessKey,
+    },
+    // Otherwise the SDK adds a CRC32 of an *empty* body to every presigned PUT
+    // URL, which S3-compatible stores may check against the real file.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
+  });
+}
+
+/**
+ * One folder/file name component: no path separators, control characters, or
+ * characters that break object keys or desktop filesystems when downloaded.
+ */
+function safePathSegment(s, maxLength) {
+  return String(s || "")
+    .normalize("NFC")
+    .replace(/[/\\]/g, "-")
+    .replace(/[\p{Cc}:*?"<>|#%{}^[\]`~]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength)
+    // No leading/trailing dots or spaces ("." / ".." segments, Windows names).
+    .replace(/^[\s.]+|[\s.]+$/g, "");
+}
+
+/** The admin's folder setting → "Yearbook/2026-27" (no outer slashes); "" = bucket root. */
+function cleanUploadFolder(s) {
+  return String(s || "")
+    .split(/[/\\]+/)
+    .map((segment) => safePathSegment(segment, 60))
+    .filter(Boolean)
+    .slice(0, 5)
+    .join("/");
+}
+
+/** "Homecoming Game 2026-10-03" — the event's folder and file-name stem. */
+function eventUploadName(event) {
+  const d = event.date && event.date.toDate ? event.date.toDate() : new Date();
+  // Legacy events stored 2-digit years (e.g. 0025) — same fix as the web model.
+  if (d.getUTCFullYear() < 100) d.setUTCFullYear(d.getUTCFullYear() + 2000);
+  const day = d.toLocaleDateString("en-CA", { timeZone: SCHOOL_TIME_ZONE });
+  return `${safePathSegment(event.eventName, 80) || "Event"} ${day}`;
+}
+
+async function loadPhotoUploads() {
+  const [flagSnap, configSnap] = await Promise.all([
+    db.doc(PHOTO_UPLOADS_FLAG_DOC).get(),
+    db.doc(PHOTO_UPLOADS_CONFIG_DOC).get(),
+  ]);
+  return {
+    enabled: flagSnap.exists && flagSnap.data().enabled === true,
+    config: configSnap.exists ? configSnap.data() : {},
+  };
+}
+
+/** What admins see on the Settings page — never the keys themselves. */
+function photoUploadsView(enabled, config) {
+  return {
+    enabled,
+    bucket: config.bucket || "",
+    region: config.region || "us-east-1",
+    folder: config.folder || "",
+    accessKeyHint: config.accessKeyId ? config.accessKeyId.slice(-4) : null,
+    hasSecretKey: Boolean(config.secretAccessKey),
+  };
+}
+
+/** Proves the bucket exists in that region and the keys can reach it; throws a readable error. */
+async function checkUploadBucket(config) {
+  try {
+    await photoUploadsClient(config).send(new HeadBucketCommand({ Bucket: config.bucket }), {
+      abortSignal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    const status = err.$metadata && err.$metadata.httpStatusCode;
+    const code = err.code || (err.cause && err.cause.code);
+    console.warn("photo uploads: bucket check failed", config.bucket, config.region, err.name, status || code);
+    let message = "Couldn't connect to Wasabi with these settings. Check them and try again.";
+    if (status === 301 || err.name === "PermanentRedirect") {
+      message = `Bucket "${config.bucket}" is in a different region. Check the region.`;
+    } else if (status === 401 || status === 403) {
+      message =
+        "Wasabi refused these keys. Check the access key and secret key, and that they're allowed to use this bucket.";
+    } else if (status === 404 || err.name === "NotFound" || err.name === "NoSuchBucket") {
+      message = `Wasabi has no bucket named "${config.bucket}" in ${config.region}.`;
+    } else if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+      message = `Couldn't reach Wasabi region "${config.region}". Check the region.`;
+    }
+    throw new HttpsError("failed-precondition", message);
+  }
+}
+
+// ─── getPhotoUploadSettings / savePhotoUploadSettings (admin only) ────────────
+exports.getPhotoUploadSettings = onCall(async (request) => {
+  await requireAdmin(requireAuth(request));
+  const { enabled, config } = await loadPhotoUploads();
+  return photoUploadsView(enabled, config);
+});
+
+// Omitted fields keep their saved value, and blank key fields keep the saved
+// keys — the page never has them to send back. Turning uploads on tests the
+// bucket and keys first, so photographers never see a half-configured upload.
+exports.savePhotoUploadSettings = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const admin = await requireAdmin(uid);
+
+  const input = request.data || {};
+  const enabled = input.enabled === true;
+  const text = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : undefined);
+  const { config: saved } = await loadPhotoUploads();
+
+  const config = {
+    bucket: (text(input.bucket, 63) ?? saved.bucket ?? "").toLowerCase(),
+    region: (text(input.region, 32) ?? saved.region ?? "us-east-1").toLowerCase(),
+    folder: input.folder !== undefined ? cleanUploadFolder(text(input.folder, 400)) : saved.folder || "",
+    accessKeyId: text(input.accessKeyId, 256) || saved.accessKeyId || "",
+    secretAccessKey: text(input.secretAccessKey, 256) || saved.secretAccessKey || "",
+  };
+
+  if (enabled) {
+    if (!BUCKET_NAME_RE.test(config.bucket)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Enter a valid bucket name (lowercase letters, numbers, dots, and hyphens)."
+      );
+    }
+    if (!WASABI_REGION_RE.test(config.region)) {
+      throw new HttpsError("invalid-argument", "Enter a valid Wasabi region, like us-east-1.");
+    }
+    if (!config.accessKeyId || !config.secretAccessKey) {
+      throw new HttpsError("invalid-argument", "Enter the Wasabi access key and secret key.");
+    }
+    await checkUploadBucket(config);
+  }
+
+  const batch = db.batch();
+  batch.set(db.doc(PHOTO_UPLOADS_CONFIG_DOC), {
+    ...config,
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedBy: uid,
+    updatedByName: admin.displayName,
+  });
+  batch.set(db.doc(PHOTO_UPLOADS_FLAG_DOC), {
+    enabled,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
+
+  return photoUploadsView(enabled, config);
+});
+
+// ─── createPhotoUploadUrls ────────────────────────────────────────────────────
+// Reserves the next file numbers in the event's folder and returns one
+// presigned PUT URL per file, in the order given. The browser asks for a few
+// at a time as it uploads, so a closed tab leaves at most a small gap.
+exports.createPhotoUploadUrls = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const { eventId, files } = request.data || {};
+  if (typeof eventId !== "string" || !eventId) {
+    throw new HttpsError("invalid-argument", "eventId is required.");
+  }
+  if (!Array.isArray(files) || files.length === 0 || files.length > MAX_PHOTO_URLS_PER_CALL) {
+    throw new HttpsError("invalid-argument", `Send between 1 and ${MAX_PHOTO_URLS_PER_CALL} files.`);
+  }
+
+  const photos = files.map((f) => {
+    const ext = String((f && f.extension) || "").replace(/^\./, "").toLowerCase();
+    const size = f && f.size;
+    if (!Object.hasOwn(PHOTO_CONTENT_TYPES, ext)) {
+      throw new HttpsError("invalid-argument", "Only photo files can be uploaded.");
+    }
+    if (!Number.isFinite(size) || size <= 0 || size > MAX_UPLOAD_BYTES) {
+      throw new HttpsError("invalid-argument", "Photos must be 2 GB or smaller.");
+    }
+    return { ext, contentType: PHOTO_CONTENT_TYPES[ext] };
+  });
+
+  const [{ enabled, config }, eventSnap, profile] = await Promise.all([
+    loadPhotoUploads(),
+    db.collection(EVENTS).doc(eventId).get(),
+    resolveProfile(uid),
+  ]);
+  if (!enabled) {
+    throw new HttpsError("failed-precondition", "Photo uploads are turned off.");
+  }
+  if (!config.bucket || !config.accessKeyId || !config.secretAccessKey) {
+    throw new HttpsError("failed-precondition", "Photo uploads aren't set up yet. Ask an admin.");
+  }
+  if (!profile || !profile.active) {
+    throw new HttpsError("permission-denied", "Your account has not been approved yet.");
+  }
+  if (!eventSnap.exists) throw new HttpsError("not-found", "Event not found.");
+
+  const event = eventSnap.data();
+  if (event.status === "cancelled") {
+    throw new HttpsError("failed-precondition", "This event was cancelled.");
+  }
+  if (!(event.slots || []).some((s) => s.photographerId === uid)) {
+    throw new HttpsError("permission-denied", "You can only upload photos for events you're signed up for.");
+  }
+
+  const name = eventUploadName(event);
+  const prefix = config.folder ? `${config.folder}/${name}` : name;
+  // Object keys max out at 1024 bytes; leave room for " <n>.<ext>".
+  if (Buffer.byteLength(`${prefix}/${name}`) > 1000) {
+    throw new HttpsError("failed-precondition", "The upload folder and event name are too long for Wasabi.");
+  }
+
+  // One counter per bucket folder (not per event): renaming an event or
+  // changing the folder setting starts a fresh folder at 1, and two events
+  // that resolve to the same folder share numbering instead of overwriting.
+  const counterRef = db
+    .collection(PHOTO_UPLOAD_FOLDERS)
+    .doc(crypto.createHash("sha256").update(`${config.bucket}/${prefix}`).digest("hex"));
+  const first = await db.runTransaction(async (txn) => {
+    const snap = await txn.get(counterRef);
+    const next = (snap.exists && snap.data().nextNumber) || 1;
+    txn.set(counterRef, {
+      bucket: config.bucket,
+      prefix,
+      eventId,
+      nextNumber: next + photos.length,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return next;
+  });
+
+  const client = photoUploadsClient(config);
+  const uploads = await Promise.all(
+    photos.map(async (photo, i) => ({
+      url: await getSignedUrl(
+        client,
+        new PutObjectCommand({
+          Bucket: config.bucket,
+          Key: `${prefix}/${name} ${first + i}.${photo.ext}`,
+        }),
+        { expiresIn: 6 * 60 * 60 } // slow connections + big RAW files
+      ),
+      contentType: photo.contentType,
+    }))
+  );
+
+  return { uploads };
+});
 
 // ─── assignPhotographer (admin only) ─────────────────────────────────────────
 // May exceed slotsNeeded, matching the Flutter admin behavior.

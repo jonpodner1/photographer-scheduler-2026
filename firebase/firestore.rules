@@ -130,7 +130,22 @@ service cloud.firestore {
 
     match /scheduler_settings/{doc} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      // photoUploads (the upload on/off switch) is written only by the
+      // savePhotoUploadSettings function, which tests the Wasabi settings
+      // before turning uploads on.
+      allow write: if isAdmin() && doc != 'photoUploads';
+    }
+
+    // ═══ Server-only (Cloud Functions / Admin SDK) ══════════════════════════
+    // Wasabi settings including access keys, and per-folder upload counters.
+    // No client may read or write these — admins included — so saved keys are
+    // never shown to anyone.
+    match /scheduler_private/{doc} {
+      allow read, write: if false;
+    }
+
+    match /scheduler_photo_folders/{folderId} {
+      allow read, write: if false;
     }
 
     match /scheduler_events/{eventId} {
